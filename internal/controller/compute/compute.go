@@ -34,6 +34,7 @@ import (
 
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	apisv1alpha1 "github.com/crossplane/provider-customcomputeprovider/apis/v1alpha1"
+	"github.com/crossplane/provider-customcomputeprovider/internal/awspkg"
 	"github.com/crossplane/provider-customcomputeprovider/internal/features"
 )
 
@@ -137,8 +138,34 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.New(errNotCompute)
 	}
 
-	// These fmt statements should be removed in the real implementation.
 	fmt.Printf("Observing: %+v", cr)
+
+	cfg, err := awspkg.AWSClientConnector(ctx)(
+		cr.Spec.ForProvider.AWSConfig.Region,
+	)
+
+	if err != nil {
+		return managed.ExternalObservation{}, awspkg.ErrAwsClient
+	}
+
+	client := awspkg.EC2Connect(cfg)
+	baseResourceConfig := cr.Spec.ForProvider.InstanceConfig
+
+	found, currentResource, err := awspkg.Found(ctx, client, baseResourceConfig.InstanceName)
+	if err != nil {
+		return managed.ExternalObservation{}, nil
+	}
+
+	if !found {
+		return managed.ExternalObservation{ResourceExists: false}, nil
+	}
+
+	if !awspkg.EC2ResourceUpToDate(currentResource, &baseResourceConfig) {
+		return managed.ExternalObservation{
+			ResourceExists:   true,
+			ResourceUpToDate: false,
+		}, nil
+	}
 
 	return managed.ExternalObservation{
 		// Return false when the external resource does not exist. This lets
@@ -195,5 +222,14 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 
 	fmt.Printf("Deleting: %+v", cr)
 
-	return nil
+	cfg, err := awspkg.AWSClientConnector(ctx)(
+		cr.Spec.ForProvider.AWSConfig.Region,
+	)
+
+	if err != nil {
+		return awspkg.ErrAwsClient
+	}
+
+	client := awspkg.EC2Connect(cfg)
+	return awspkg.Delete(ctx, client, cr.Spec.ForProvider.InstanceConfig)
 }

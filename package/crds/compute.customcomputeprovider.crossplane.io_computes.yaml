@@ -73,10 +73,45 @@ spec:
               forProvider:
                 description: ComputeParameters are the configurable fields of a Compute.
                 properties:
+                  awsConfig:
+                    properties:
+                      region:
+                        type: string
+                    required:
+                    - region
+                    type: object
                   configurableField:
                     type: string
+                  instanceConfig:
+                    properties:
+                      instanceAMI:
+                        type: string
+                      instanceDisk:
+                        type: string
+                      instanceName:
+                        type: string
+                      instanceSecurityGroups:
+                        items:
+                          type: string
+                        type: array
+                      instanceTags:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      instanceType:
+                        type: string
+                    required:
+                    - instanceAMI
+                    - instanceDisk
+                    - instanceName
+                    - instanceSecurityGroups
+                    - instanceTags
+                    - instanceType
+                    type: object
                 required:
+                - awsConfig
                 - configurableField
+                - instanceConfig
                 type: object
               managementPolicies:
                 default:
@@ -253,6 +288,10 @@ spec:
                 properties:
                   observableField:
                     type: string
+                  state:
+                    type: string
+                required:
+                - state
                 type: object
               conditions:
                 description: Conditions of the resource.
