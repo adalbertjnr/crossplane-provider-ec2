@@ -27,12 +27,28 @@ import (
 
 // ComputeParameters are the configurable fields of a Compute.
 type ComputeParameters struct {
-	ConfigurableField string `json:"configurableField"`
+	ConfigurableField string         `json:"configurableField"`
+	AWSConfig         AWSConfig      `json:"awsConfig"`
+	InstanceConfig    InstanceConfig `json:"instanceConfig"`
+}
+
+type AWSConfig struct {
+	Region string `json:"region"`
+}
+
+type InstanceConfig struct {
+	InstanceName           string            `json:"instanceName"`
+	InstanceType           string            `json:"instanceType"`
+	InstanceAMI            string            `json:"instanceAMI"`
+	InstanceDisk           string            `json:"instanceDisk"`
+	InstanceSecurityGroups []string          `json:"instanceSecurityGroups"`
+	InstanceTags           map[string]string `json:"instanceTags"`
 }
 
 // ComputeObservation are the observable fields of a Compute.
 type ComputeObservation struct {
 	ObservableField string `json:"observableField,omitempty"`
+	State           string `json:"state"`
 }
 
 // A ComputeSpec defines the desired state of a Compute.
