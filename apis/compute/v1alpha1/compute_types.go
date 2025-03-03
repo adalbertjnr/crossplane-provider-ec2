@@ -36,6 +36,7 @@ type AWSConfig struct {
 }
 
 type Storage struct {
+	DeviceName   string `json:"deviceName"`
 	DiskSize     int32  `json:"diskSize"`
 	InstanceDisk string `json:"diskType"`
 }
@@ -52,7 +53,7 @@ type InstanceConfig struct {
 	InstanceTags map[string]string `json:"tags"`
 
 	Networking Networking `json:"networking"`
-	Storage    Storage    `json:"storage"`
+	Storage    []Storage  `json:"storage"`
 }
 
 // ComputeObservation are the observable fields of a Compute.

@@ -99,16 +99,21 @@ spec:
                         - subnetID
                         type: object
                       storage:
-                        properties:
-                          diskSize:
-                            format: int32
-                            type: integer
-                          diskType:
-                            type: string
-                        required:
-                        - diskSize
-                        - diskType
-                        type: object
+                        items:
+                          properties:
+                            deviceName:
+                              type: string
+                            diskSize:
+                              format: int32
+                              type: integer
+                            diskType:
+                              type: string
+                          required:
+                          - deviceName
+                          - diskSize
+                          - diskType
+                          type: object
+                        type: array
                       tags:
                         additionalProperties:
                           type: string

@@ -1,17 +1,18 @@
 apiVersion: compute.customcomputeprovider.crossplane.io/v1alpha1
 kind: Compute
 metadata:
-  name: test-compute
+  name: compute-cp
 spec:
   forProvider:
     awsConfig:
       region: "us-east-1"
     instanceConfig:
-      name: "test-ec2"
+      name: "cp-crossplane"
       type: "t2.micro"
       ami: "ami-05b10e08d247fb927"
 
       storage:
+      - deviceName: "/dev/xvda"
         diskType: "gp3"
         diskSize: 30
 
@@ -21,10 +22,10 @@ spec:
         - sg-05ae307de29c35433
 
       tags:
-        "environment": "dev"
-        "iac": "crossplane"
-        "fe": "backstage"
-        "gitops": "argocd"
+        "Environment": "dev"
+        "Iac": "crossplane"
+        "Fe": "backstage"
+        "GitOps": "argocd"
 
   providerConfigRef:
     name: example
