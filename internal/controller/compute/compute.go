@@ -19,6 +19,7 @@ package compute
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -191,6 +192,23 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	fmt.Printf("Creating: %+v", cr)
+
+	cfg, err := awspkg.AWSClientConnector(ctx)(
+		cr.Spec.ForProvider.AWSConfig.Region,
+	)
+
+	if err != nil {
+		return managed.ExternalCreation{}, err
+	}
+
+	client := awspkg.EC2Connect(cfg)
+
+	rsp, err := awspkg.Create(ctx, client, cr.Spec.ForProvider.InstanceConfig)
+	if err != nil {
+		return managed.ExternalCreation{}, err
+	}
+
+	slog.Info("create", "instance_id", *rsp.Instances[0].InstanceId)
 
 	return managed.ExternalCreation{
 		// Optionally return any details that may be required to connect to the

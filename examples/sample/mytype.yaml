@@ -1,9 +1,30 @@
-apiVersion: sample.customcomputeprovider.crossplane.io/v1alpha1
-kind: MyType
+apiVersion: compute.customcomputeprovider.crossplane.io/v1alpha1
+kind: Compute
 metadata:
-  name: example
+  name: test-compute
 spec:
   forProvider:
-    configurableField: test
+    awsConfig:
+      region: "us-east-1"
+    instanceConfig:
+      name: "test-ec2"
+      type: "t2.micro"
+      ami: "ami-05b10e08d247fb927"
+
+      storage:
+        diskType: "gp3"
+        diskSize: 30
+
+      networking:
+        subnetID: "subnet-0f3031cfcab95eb28"
+        securityGroups:
+        - sg-05ae307de29c35433
+
+      tags:
+        "environment": "dev"
+        "iac": "crossplane"
+        "fe": "backstage"
+        "gitops": "argocd"
+
   providerConfigRef:
-    name: example
+    name: compute

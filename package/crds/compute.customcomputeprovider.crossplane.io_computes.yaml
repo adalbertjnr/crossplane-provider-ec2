@@ -80,37 +80,50 @@ spec:
                     required:
                     - region
                     type: object
-                  configurableField:
-                    type: string
                   instanceConfig:
                     properties:
-                      instanceAMI:
+                      ami:
                         type: string
-                      instanceDisk:
+                      name:
                         type: string
-                      instanceName:
-                        type: string
-                      instanceSecurityGroups:
-                        items:
-                          type: string
-                        type: array
-                      instanceTags:
+                      networking:
+                        properties:
+                          securityGroups:
+                            items:
+                              type: string
+                            type: array
+                          subnetID:
+                            type: string
+                        required:
+                        - securityGroups
+                        - subnetID
+                        type: object
+                      storage:
+                        properties:
+                          diskSize:
+                            type: integer
+                          diskType:
+                            type: string
+                        required:
+                        - diskSize
+                        - diskType
+                        type: object
+                      tags:
                         additionalProperties:
                           type: string
                         type: object
-                      instanceType:
+                      type:
                         type: string
                     required:
-                    - instanceAMI
-                    - instanceDisk
-                    - instanceName
-                    - instanceSecurityGroups
-                    - instanceTags
-                    - instanceType
+                    - ami
+                    - name
+                    - networking
+                    - storage
+                    - tags
+                    - type
                     type: object
                 required:
                 - awsConfig
-                - configurableField
                 - instanceConfig
                 type: object
               managementPolicies:

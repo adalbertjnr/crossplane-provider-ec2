@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
@@ -56,7 +57,7 @@ func EC2ResourceUpToDate(current types.Instance, desired *v1alpha1.InstanceConfi
 		}
 	}
 
-	for _, desiredSecurityGroup := range desired.InstanceSecurityGroups {
+	for _, desiredSecurityGroup := range desired.Networking.InstanceSecurityGroups {
 		if _, exists := observedSecurityGroups[desiredSecurityGroup]; !exists {
 			return !equal
 		}
@@ -68,4 +69,23 @@ func EC2ResourceUpToDate(current types.Instance, desired *v1alpha1.InstanceConfi
 func Delete(ctx context.Context, c *ec2.Client, resource v1alpha1.InstanceConfig) error {
 	_, err := c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{resource.InstanceName}})
 	return err
+}
+
+func Create(ctx context.Context, c *ec2.Client, resource v1alpha1.InstanceConfig) (*ec2.RunInstancesOutput, error) {
+	input := &ec2.RunInstancesInput{
+		ImageId:          &resource.InstanceAMI,
+		InstanceType:     types.InstanceType(resource.InstanceType),
+		SecurityGroupIds: resource.Networking.InstanceSecurityGroups,
+		SubnetId:         &resource.Networking.SubnetID,
+		BlockDeviceMappings: []types.BlockDeviceMapping{
+			{Ebs: &types.EbsBlockDevice{
+				DeleteOnTermination: aws.Bool(true),
+				Encrypted:           aws.Bool(true),
+				VolumeType:          types.VolumeType(resource.Storage.InstanceDisk),
+				VolumeSize:          &resource.Storage.DiskSize,
+			}},
+		},
+	}
+
+	return c.RunInstances(ctx, input)
 }
