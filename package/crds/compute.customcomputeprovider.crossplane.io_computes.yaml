@@ -101,6 +101,7 @@ spec:
                       storage:
                         properties:
                           diskSize:
+                            format: int32
                             type: integer
                           diskType:
                             type: string

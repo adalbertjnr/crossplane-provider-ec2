@@ -27,4 +27,4 @@ spec:
         "gitops": "argocd"
 
   providerConfigRef:
-    name: compute
+    name: example

@@ -12,7 +12,7 @@ import (
 )
 
 func Found(ctx context.Context, e *ec2.Client, resourceName string) (bool, types.Instance, error) {
-	rsp, err := e.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{resourceName}})
+	rsp, err := e.DescribeInstances(ctx, &ec2.DescribeInstancesInput{})
 	if err != nil {
 		slog.Error("failed to describe ec2 instance", "err", err)
 		return false, types.Instance{}, fmt.Errorf("failed to describe ec2 instance: %w", err)
@@ -72,18 +72,27 @@ func Delete(ctx context.Context, c *ec2.Client, resource v1alpha1.InstanceConfig
 }
 
 func Create(ctx context.Context, c *ec2.Client, resource v1alpha1.InstanceConfig) (*ec2.RunInstancesOutput, error) {
+	if _, found := resource.InstanceTags["Name"]; !found {
+		resource.InstanceTags["Name"] = resource.InstanceName
+	}
+
 	input := &ec2.RunInstancesInput{
 		ImageId:          &resource.InstanceAMI,
 		InstanceType:     types.InstanceType(resource.InstanceType),
 		SecurityGroupIds: resource.Networking.InstanceSecurityGroups,
 		SubnetId:         &resource.Networking.SubnetID,
+		MinCount:         aws.Int32(1),
+		MaxCount:         aws.Int32(1),
 		BlockDeviceMappings: []types.BlockDeviceMapping{
-			{Ebs: &types.EbsBlockDevice{
-				DeleteOnTermination: aws.Bool(true),
-				Encrypted:           aws.Bool(true),
-				VolumeType:          types.VolumeType(resource.Storage.InstanceDisk),
-				VolumeSize:          &resource.Storage.DiskSize,
-			}},
+			{
+				DeviceName: aws.String("/dev/xvda"),
+				Ebs: &types.EbsBlockDevice{
+					DeleteOnTermination: aws.Bool(true),
+					Encrypted:           aws.Bool(true),
+					VolumeType:          types.VolumeType(resource.Storage.InstanceDisk),
+					VolumeSize:          &resource.Storage.DiskSize,
+				},
+			},
 		},
 	}
 
