@@ -11,90 +11,104 @@ import (
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 )
 
-func Found(ctx context.Context, e *ec2.Client, resourceName string) (bool, types.Instance, error) {
-	rsp, err := e.DescribeInstances(ctx, &ec2.DescribeInstancesInput{})
+func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*types.Instance, error) {
+	rsp, err := e.c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []types.Filter{
+			{Name: aws.String("tag:Name"), Values: []string{resourceName}},
+		},
+	})
+
 	if err != nil {
 		slog.Error("failed to describe ec2 instance", "err", err)
-		return false, types.Instance{}, fmt.Errorf("failed to describe ec2 instance: %w", err)
+		return nil, fmt.Errorf("failed to describe ec2 instance: %w", err)
 	}
 
 	if len(rsp.Reservations) == 0 {
-		return false, types.Instance{}, nil
+		return nil, nil
 	}
 
-	return true, rsp.Reservations[0].Instances[0], nil
+	return &rsp.Reservations[0].Instances[0], nil
 }
 
-func EC2HandleInstanceType() error           { return nil }
-func EC2HandleInstanceAMI() error            { return nil }
-func EC2HandleInstanceTags() error           { return nil }
-func EC2HandleInstanceVolume() error         { return nil }
-func EC2HandleInstanceSecurityGroups() error { return nil }
+func (e *EC2Client) Observe(ctx context.Context, resourceName string) (bool, *types.Instance, error) {
+	rsp, err := e.GetInstance(ctx, resourceName)
 
-type CurrentEC2Metadata struct{}
-
-func EC2ResourceUpToDate(current types.Instance, desired *v1alpha1.InstanceConfig) bool {
-	equal := false
-
-	if current.ImageId != &desired.InstanceAMI {
-		return !equal
+	if err != nil {
+		slog.Error("failed to describe ec2 instance", "err", err)
+		return false, nil, fmt.Errorf("failed to describe ec2 instance: %w", err)
 	}
 
-	if current.InstanceType != types.InstanceType(desired.InstanceType) {
-		return !equal
+	if rsp == nil {
+		return false, nil, nil
 	}
 
-	for _, v := range current.Tags {
-		if _, found := desired.InstanceTags[*v.Key]; !found {
-			return !equal
-		}
-	}
-
-	observedSecurityGroups := map[string]struct{}{}
-	for _, sg := range current.SecurityGroups {
-		if _, exists := observedSecurityGroups[*sg.GroupId]; !exists {
-			observedSecurityGroups[*sg.GroupId] = struct{}{}
-		}
-	}
-
-	for _, desiredSecurityGroup := range desired.Networking.InstanceSecurityGroups {
-		if _, exists := observedSecurityGroups[desiredSecurityGroup]; !exists {
-			return !equal
-		}
-	}
-
-	return equal
+	return true, rsp, nil
 }
 
-func Delete(ctx context.Context, c *ec2.Client, resource v1alpha1.InstanceConfig) error {
-	_, err := c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{resource.InstanceName}})
+func (e *EC2Client) DeleteInstance(ctx context.Context, resource v1alpha1.InstanceConfig) error {
+	rsp, err := e.c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		Filters: []types.Filter{
+			{Name: aws.String("tag:Name"), Values: []string{resource.InstanceName}},
+		},
+	})
+
+	if err != nil {
+		slog.Error("failed to describe ec2 instance", "err", err)
+		return fmt.Errorf("failed to describe ec2 instance: %w", err)
+	}
+
+	if len(rsp.Reservations) == 0 {
+		slog.Info("instance not found for deletion", "err", err)
+		return fmt.Errorf("instance not found for deletion: %w", err)
+	}
+
+	_, err = e.c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+		InstanceIds: []string{*rsp.Reservations[0].Instances[0].InstanceId},
+	})
+
 	return err
 }
 
-func Create(ctx context.Context, c *ec2.Client, resource v1alpha1.InstanceConfig) (*ec2.RunInstancesOutput, error) {
+func (e *EC2Client) CreateInstance(ctx context.Context, resource v1alpha1.InstanceConfig) (*ec2.RunInstancesOutput, error) {
 	if _, found := resource.InstanceTags["Name"]; !found {
 		resource.InstanceTags["Name"] = resource.InstanceName
 	}
 
-	input := &ec2.RunInstancesInput{
-		ImageId:          &resource.InstanceAMI,
-		InstanceType:     types.InstanceType(resource.InstanceType),
-		SecurityGroupIds: resource.Networking.InstanceSecurityGroups,
-		SubnetId:         &resource.Networking.SubnetID,
-		MinCount:         aws.Int32(1),
-		MaxCount:         aws.Int32(1),
-		BlockDeviceMappings: []types.BlockDeviceMapping{
+	var computeInstanceTags []types.Tag
+	for key, value := range resource.InstanceTags {
+		computeInstanceTags = append(computeInstanceTags, types.Tag{Key: &key, Value: &value})
+	}
+
+	blockDeviceMapping := make([]types.BlockDeviceMapping, len(resource.Storage))
+
+	for i, storage := range resource.Storage {
+		blockDeviceMapping[i] = types.BlockDeviceMapping{
+			DeviceName: &storage.DeviceName,
+			Ebs: &types.EbsBlockDevice{
+				DeleteOnTermination: aws.Bool(true),
+				Encrypted:           aws.Bool(true),
+				VolumeType:          types.VolumeType(storage.InstanceDisk),
+				VolumeSize:          &storage.DiskSize,
+			},
+		}
+	}
+
+	params := &ec2.RunInstancesInput{
+		ImageId:             &resource.InstanceAMI,
+		InstanceType:        types.InstanceType(resource.InstanceType),
+		SecurityGroupIds:    resource.Networking.InstanceSecurityGroups,
+		SubnetId:            &resource.Networking.SubnetID,
+		MinCount:            aws.Int32(1),
+		MaxCount:            aws.Int32(1),
+		BlockDeviceMappings: blockDeviceMapping,
+
+		TagSpecifications: []types.TagSpecification{
 			{
-				DeviceName: aws.String("/dev/xvda"),
-				Ebs: &types.EbsBlockDevice{
-					DeleteOnTermination: aws.Bool(true),
-					Encrypted:           aws.Bool(true),
-					VolumeType:          types.VolumeType(resource.Storage.InstanceDisk),
-					VolumeSize:          &resource.Storage.DiskSize,
-				},
+				ResourceType: types.ResourceTypeInstance,
+				Tags:         computeInstanceTags,
 			},
 		},
 	}
 
-	return c.RunInstances(ctx, input)
+	return e.c.RunInstances(ctx, params)
 }

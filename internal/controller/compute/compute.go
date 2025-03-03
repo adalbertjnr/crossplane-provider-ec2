@@ -33,6 +33,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	apisv1alpha1 "github.com/crossplane/provider-customcomputeprovider/apis/v1alpha1"
 	"github.com/crossplane/provider-customcomputeprovider/internal/awspkg"
@@ -149,10 +150,10 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, awspkg.ErrAwsClient
 	}
 
-	client := awspkg.EC2Connect(cfg)
+	client := awspkg.EC2ClientConnector(cfg)
 	baseResourceConfig := cr.Spec.ForProvider.InstanceConfig
 
-	found, currentResource, err := awspkg.Found(ctx, client, baseResourceConfig.InstanceName)
+	found, currentResource, err := client.Observe(ctx, baseResourceConfig.InstanceName)
 	if err != nil {
 		return managed.ExternalObservation{}, nil
 	}
@@ -201,9 +202,9 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, err
 	}
 
-	client := awspkg.EC2Connect(cfg)
+	client := awspkg.EC2ClientConnector(cfg)
 
-	rsp, err := awspkg.Create(ctx, client, cr.Spec.ForProvider.InstanceConfig)
+	rsp, err := client.CreateInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
@@ -224,6 +225,43 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	fmt.Printf("Updating: %+v", cr)
+
+	cfg, err := awspkg.AWSClientConnector(ctx)(
+		cr.Spec.ForProvider.AWSConfig.Region,
+	)
+	if err != nil {
+		return managed.ExternalUpdate{}, err
+	}
+
+	client := awspkg.EC2ClientConnector(cfg)
+	current, err := client.GetInstance(ctx, cr.Spec.ForProvider.InstanceConfig.InstanceName)
+	if err != nil {
+		return managed.ExternalUpdate{}, err
+	}
+
+	updates := []func(*ec2types.Instance, *v1alpha1.InstanceConfig) error{}
+
+	if awspkg.InstanceAMIUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+		updates = append(updates, client.EC2HandleInstanceAMI)
+	}
+
+	if awspkg.InstanceTypeUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+		updates = append(updates, client.EC2HandleInstanceType)
+	}
+
+	if awspkg.InstanceTagsUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+		updates = append(updates, client.EC2HandleInstanceTags)
+	}
+
+	if awspkg.InstanceSecurityGroupsUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+		updates = append(updates, client.EC2HandleInstanceSecurityGroups)
+	}
+
+	for _, update := range updates {
+		if err := update(current, &cr.Spec.ForProvider.InstanceConfig); err != nil {
+			return managed.ExternalUpdate{}, err
+		}
+	}
 
 	return managed.ExternalUpdate{
 		// Optionally return any details that may be required to connect to the
@@ -248,6 +286,6 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 		return awspkg.ErrAwsClient
 	}
 
-	client := awspkg.EC2Connect(cfg)
-	return awspkg.Delete(ctx, client, cr.Spec.ForProvider.InstanceConfig)
+	client := awspkg.EC2ClientConnector(cfg)
+	return client.DeleteInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 }
