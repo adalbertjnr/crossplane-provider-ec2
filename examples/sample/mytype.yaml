@@ -7,7 +7,7 @@ spec:
     awsConfig:
       region: "us-east-1"
     instanceConfig:
-      name: "cp-crossplane"
+      name: "cp-crossplane1"
       type: "t2.micro"
       ami: "ami-05b10e08d247fb927"
 
@@ -22,10 +22,10 @@ spec:
         - sg-05ae307de29c35433
 
       tags:
-        "Environment": "dev"
-        "Iac": "crossplane"
-        "Fe": "backstage"
-        "GitOps": "argocd"
+        "Environment": "Dev"
+        "Iac": "Crossplane"
+        "Fe": "Backstage"
+        "GitOps": "ArgoCD"
 
   providerConfigRef:
     name: example

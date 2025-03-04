@@ -155,7 +155,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	found, currentResource, err := client.Observe(ctx, baseResourceConfig.InstanceName)
 	if err != nil {
-		return managed.ExternalObservation{}, nil
+		return managed.ExternalObservation{}, err
 	}
 
 	if !found {

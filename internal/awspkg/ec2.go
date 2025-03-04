@@ -31,18 +31,23 @@ func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*type
 }
 
 func (e *EC2Client) Observe(ctx context.Context, resourceName string) (bool, *types.Instance, error) {
-	rsp, err := e.GetInstance(ctx, resourceName)
+	exists := true
 
+	rsp, err := e.GetInstance(ctx, resourceName)
 	if err != nil {
-		slog.Error("failed to describe ec2 instance", "err", err)
-		return false, nil, fmt.Errorf("failed to describe ec2 instance: %w", err)
+		return !exists, nil, err
 	}
 
 	if rsp == nil {
-		return false, nil, nil
+		return !exists, nil, nil
 	}
 
-	return true, rsp, nil
+	if rsp.State.Name == types.InstanceStateNameTerminated ||
+		rsp.State.Name == types.InstanceStateNameShuttingDown {
+		return !exists, nil, nil
+	}
+
+	return exists, rsp, nil
 }
 
 func (e *EC2Client) DeleteInstance(ctx context.Context, resource v1alpha1.InstanceConfig) error {
