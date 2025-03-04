@@ -1,4 +1,4 @@
-package awspkg
+package cloud
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type EC2Client struct {
 	c *ec2.Client
 }
 
-func EC2ClientConnector(c aws.Config) *EC2Client {
+func NewEC2Client(c aws.Config) *EC2Client {
 	client := ec2.NewFromConfig(c)
 
 	return &EC2Client{c: client}

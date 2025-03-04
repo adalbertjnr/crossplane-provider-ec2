@@ -1,4 +1,4 @@
-package awspkg
+package cloud
 
 import (
 	"context"

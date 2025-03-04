@@ -1,4 +1,4 @@
-package awspkg
+package cloud
 
 import (
 	"context"
@@ -33,21 +33,20 @@ func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*type
 func (e *EC2Client) Observe(ctx context.Context, resourceName string) (bool, *types.Instance, error) {
 	exists := true
 
-	rsp, err := e.GetInstance(ctx, resourceName)
+	instance, err := e.GetInstance(ctx, resourceName)
 	if err != nil {
 		return !exists, nil, err
 	}
 
-	if rsp == nil {
+	// if the instance is shutting down or terminated the response will be != nil
+	// which means we can spin up another instance with same name
+	if instance == nil ||
+		instance.State.Name == types.InstanceStateNameTerminated ||
+		instance.State.Name == types.InstanceStateNameShuttingDown {
 		return !exists, nil, nil
 	}
 
-	if rsp.State.Name == types.InstanceStateNameTerminated ||
-		rsp.State.Name == types.InstanceStateNameShuttingDown {
-		return !exists, nil, nil
-	}
-
-	return exists, rsp, nil
+	return exists, instance, nil
 }
 
 func (e *EC2Client) DeleteInstance(ctx context.Context, resource v1alpha1.InstanceConfig) error {

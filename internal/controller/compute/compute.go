@@ -36,7 +36,7 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	apisv1alpha1 "github.com/crossplane/provider-customcomputeprovider/apis/v1alpha1"
-	"github.com/crossplane/provider-customcomputeprovider/internal/awspkg"
+	"github.com/crossplane/provider-customcomputeprovider/internal/cloud"
 	"github.com/crossplane/provider-customcomputeprovider/internal/features"
 )
 
@@ -142,15 +142,15 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	fmt.Printf("Observing: %+v", cr)
 
-	cfg, err := awspkg.AWSClientConnector(ctx)(
+	cfg, err := cloud.AWSClientConnector(ctx)(
 		cr.Spec.ForProvider.AWSConfig.Region,
 	)
 
 	if err != nil {
-		return managed.ExternalObservation{}, awspkg.ErrAwsClient
+		return managed.ExternalObservation{}, cloud.ErrAwsClient
 	}
 
-	client := awspkg.EC2ClientConnector(cfg)
+	client := cloud.NewEC2Client(cfg)
 	baseResourceConfig := cr.Spec.ForProvider.InstanceConfig
 
 	found, currentResource, err := client.Observe(ctx, baseResourceConfig.InstanceName)
@@ -162,7 +162,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
-	if !awspkg.EC2ResourceUpToDate(currentResource, &baseResourceConfig) {
+	if !cloud.EC2ResourceUpToDate(currentResource, &baseResourceConfig) {
 		return managed.ExternalObservation{
 			ResourceExists:   true,
 			ResourceUpToDate: false,
@@ -194,7 +194,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	fmt.Printf("Creating: %+v", cr)
 
-	cfg, err := awspkg.AWSClientConnector(ctx)(
+	cfg, err := cloud.AWSClientConnector(ctx)(
 		cr.Spec.ForProvider.AWSConfig.Region,
 	)
 
@@ -202,7 +202,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, err
 	}
 
-	client := awspkg.EC2ClientConnector(cfg)
+	client := cloud.NewEC2Client(cfg)
 
 	rsp, err := client.CreateInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 	if err != nil {
@@ -226,14 +226,15 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	fmt.Printf("Updating: %+v", cr)
 
-	cfg, err := awspkg.AWSClientConnector(ctx)(
+	cfg, err := cloud.AWSClientConnector(ctx)(
 		cr.Spec.ForProvider.AWSConfig.Region,
 	)
+
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
 
-	client := awspkg.EC2ClientConnector(cfg)
+	client := cloud.NewEC2Client(cfg)
 	current, err := client.GetInstance(ctx, cr.Spec.ForProvider.InstanceConfig.InstanceName)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
@@ -241,19 +242,31 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	updates := []func(*ec2types.Instance, *v1alpha1.InstanceConfig) error{}
 
-	if awspkg.InstanceAMIUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+	if cloud.InstanceAMIUpdate(
+		current,
+		&cr.Spec.ForProvider.InstanceConfig,
+	) {
 		updates = append(updates, client.EC2HandleInstanceAMI)
 	}
 
-	if awspkg.InstanceTypeUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+	if cloud.InstanceTypeUpdate(
+		current,
+		&cr.Spec.ForProvider.InstanceConfig,
+	) {
 		updates = append(updates, client.EC2HandleInstanceType)
 	}
 
-	if awspkg.InstanceTagsUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+	if cloud.InstanceTagsUpdate(
+		current,
+		&cr.Spec.ForProvider.InstanceConfig,
+	) {
 		updates = append(updates, client.EC2HandleInstanceTags)
 	}
 
-	if awspkg.InstanceSecurityGroupsUpdate(current, &cr.Spec.ForProvider.InstanceConfig) {
+	if cloud.InstanceSecurityGroupsUpdate(
+		current,
+		&cr.Spec.ForProvider.InstanceConfig,
+	) {
 		updates = append(updates, client.EC2HandleInstanceSecurityGroups)
 	}
 
@@ -278,14 +291,14 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 
 	fmt.Printf("Deleting: %+v", cr)
 
-	cfg, err := awspkg.AWSClientConnector(ctx)(
+	cfg, err := cloud.AWSClientConnector(ctx)(
 		cr.Spec.ForProvider.AWSConfig.Region,
 	)
 
 	if err != nil {
-		return awspkg.ErrAwsClient
+		return cloud.ErrAwsClient
 	}
 
-	client := awspkg.EC2ClientConnector(cfg)
+	client := cloud.NewEC2Client(cfg)
 	return client.DeleteInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 }

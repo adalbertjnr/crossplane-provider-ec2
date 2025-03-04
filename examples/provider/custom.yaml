@@ -1,0 +1,8 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: customcomputeprovider
+spec:
+  package: index.docker.io/crossplane/adalbertjnr/custom-compute-provider:latest
+  packagePullPolicy: Always
+  skipDependencyResolution: true
