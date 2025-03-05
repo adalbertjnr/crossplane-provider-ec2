@@ -18,8 +18,10 @@ package compute
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,6 +35,9 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	apisv1alpha1 "github.com/crossplane/provider-customcomputeprovider/apis/v1alpha1"
@@ -107,8 +112,38 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errTrackPCUsage)
 	}
 
+	credentialsClient := func(creds []byte) (interface{}, error) {
+		var awsCredentials struct {
+			AccessKeyID     string `json:"access_key_id"`
+			SecretAccessKey string `json:"secret_access_key"`
+		}
+
+		if err := json.Unmarshal(creds, &awsCredentials); err != nil {
+			return nil, err
+		}
+
+		cfg, err := config.LoadDefaultConfig(ctx,
+			config.WithRegion(cr.Spec.ForProvider.AWSConfig.Region),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+				awsCredentials.AccessKeyID,
+				awsCredentials.SecretAccessKey,
+				"",
+			)),
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return ec2.NewFromConfig(cfg), nil
+	}
+
 	pc := &apisv1alpha1.ProviderConfig{}
 	if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
+		if strings.Contains(err.Error(), "Cannot connect to provider") {
+			return nil, nil
+		}
+
 		return nil, errors.Wrap(err, errGetPC)
 	}
 
@@ -118,7 +153,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errGetCreds)
 	}
 
-	svc, err := c.newServiceFn(data)
+	svc, err := credentialsClient(data)
 	if err != nil {
 		return nil, errors.Wrap(err, errNewClient)
 	}
