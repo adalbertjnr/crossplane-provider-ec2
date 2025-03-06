@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -52,6 +51,7 @@ const (
 	errGetCreds     = "cannot get credentials"
 
 	errNewClient = "cannot create new Service"
+	errAwsClient = "cannot create aws client"
 )
 
 // A NoOpService does nothing.
@@ -140,11 +140,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 
 	pc := &apisv1alpha1.ProviderConfig{}
 	if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
-		if strings.Contains(err.Error(), "Cannot connect to provider") {
-			return nil, nil
-		}
-
-		return nil, errors.Wrap(err, errGetPC)
+		return &external{}, nil
 	}
 
 	cd := pc.Spec.Credentials
@@ -177,15 +173,11 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	fmt.Printf("Observing: %+v", cr)
 
-	cfg, err := cloud.AWSClientConnector(ctx)(
-		cr.Spec.ForProvider.AWSConfig.Region,
-	)
-
+	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
-		return managed.ExternalObservation{}, cloud.ErrAwsClient
+		return managed.ExternalObservation{}, err
 	}
 
-	client := cloud.NewEC2Client(cfg)
 	baseResourceConfig := cr.Spec.ForProvider.InstanceConfig
 
 	found, currentResource, err := client.Observe(ctx, baseResourceConfig.InstanceName)
@@ -229,15 +221,11 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	fmt.Printf("Creating: %+v", cr)
 
-	cfg, err := cloud.AWSClientConnector(ctx)(
-		cr.Spec.ForProvider.AWSConfig.Region,
-	)
+	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
-
-	client := cloud.NewEC2Client(cfg)
 
 	rsp, err := client.CreateInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 	if err != nil {
@@ -261,15 +249,12 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	fmt.Printf("Updating: %+v", cr)
 
-	cfg, err := cloud.AWSClientConnector(ctx)(
-		cr.Spec.ForProvider.AWSConfig.Region,
-	)
+	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
 
-	client := cloud.NewEC2Client(cfg)
 	current, err := client.GetInstance(ctx, cr.Spec.ForProvider.InstanceConfig.InstanceName)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
@@ -326,14 +311,30 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 
 	fmt.Printf("Deleting: %+v", cr)
 
-	cfg, err := cloud.AWSClientConnector(ctx)(
-		cr.Spec.ForProvider.AWSConfig.Region,
-	)
-
+	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
-		return cloud.ErrAwsClient
+		return err
 	}
 
-	client := cloud.NewEC2Client(cfg)
 	return client.DeleteInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
+}
+
+func clientSelector(ctx context.Context, c *external, region string) (*cloud.EC2Client, error) {
+	var client *cloud.EC2Client
+
+	cc, ok := c.service.(*cloud.EC2Client)
+	if ok {
+		client = cc
+	} else {
+		cfg, err := cloud.AWSClientConnector(ctx)(region)
+
+		if err != nil {
+			return nil, errors.New(errAwsClient)
+		}
+
+		cc := cloud.NewEC2Client(cfg)
+		client = cc
+	}
+
+	return client, nil
 }

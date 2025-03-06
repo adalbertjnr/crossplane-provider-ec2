@@ -2,14 +2,11 @@ package cloud
 
 import (
 	"context"
-	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 )
-
-var ErrAwsClient = errors.New("cannot open aws client")
 
 func AWSClientConnector(ctx context.Context) func(region string) (aws.Config, error) {
 	return func(region string) (aws.Config, error) {
