@@ -19,7 +19,7 @@ spec:
       networking:
         subnetID: "subnet-0f3031cfcab95eb28"
         securityGroups:
-        - sg-05ae307de29c35433
+        - sg-0b3a670bdc8f7d07f
 
       tags:
         "Environment": "Dev"
@@ -28,4 +28,4 @@ spec:
         "GitOps": "ArgoCD"
 
   providerConfigRef:
-    name: example
+    name: compute-provider

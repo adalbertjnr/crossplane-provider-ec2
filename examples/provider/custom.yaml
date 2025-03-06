@@ -3,6 +3,6 @@ kind: Provider
 metadata:
   name: customcomputeprovider
 spec:
-  package: index.docker.io/crossplane/adalbertjnr/custom-compute-provider:latest
+  package: public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.3.1
   packagePullPolicy: Always
   skipDependencyResolution: true
