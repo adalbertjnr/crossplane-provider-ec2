@@ -1,10 +1,15 @@
 apiVersion: meta.pkg.crossplane.io/v1alpha1
 kind: Provider
 metadata:
-  name: provider-customcomputeprovider
+  name: customcomputeprovider
   annotations:
     meta.crossplane.io/maintainer: Crossplane Maintainers <info@crossplane.io>
     meta.crossplane.io/source: github.com/crossplane/provider-customcomputeprovider
     meta.crossplane.io/license: Apache-2.0
     meta.crossplane.io/description: |
       A customcomputeprovider that can be used to create Crossplane providers.
+spec:
+  controller:
+    image: public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.1.0
+  crossplane:
+    version: ">=v1.14.0"

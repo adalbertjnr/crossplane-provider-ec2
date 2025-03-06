@@ -19,8 +19,6 @@ package compute
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"log/slog"
 
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,6 +28,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/connection"
 	"github.com/crossplane/crossplane-runtime/pkg/controller"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/crossplane-runtime/pkg/ratelimiter"
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
@@ -75,7 +74,10 @@ func Setup(mgr ctrl.Manager, o controller.Options) error {
 		managed.WithExternalConnecter(&connector{
 			kube:         mgr.GetClient(),
 			usage:        resource.NewProviderConfigUsageTracker(mgr.GetClient(), &apisv1alpha1.ProviderConfigUsage{}),
-			newServiceFn: newNoOpService}),
+			newServiceFn: newNoOpService,
+			logger:       o.Logger,
+		},
+		),
 		managed.WithLogger(o.Logger.WithValues("controller", name)),
 		managed.WithPollInterval(o.PollInterval),
 		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))),
@@ -95,6 +97,7 @@ type connector struct {
 	kube         client.Client
 	usage        resource.Tracker
 	newServiceFn func(creds []byte) (interface{}, error)
+	logger       logging.Logger
 }
 
 // Connect typically produces an ExternalClient by:
@@ -156,7 +159,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errNewClient)
 	}
 
-	return &external{service: svc}, nil
+	return &external{service: svc, logger: c.logger}, nil
 }
 
 // An ExternalClient observes, then either creates, updates, or deletes an
@@ -165,6 +168,7 @@ type external struct {
 	// A 'client' used to connect to the external resource API. In practice this
 	// would be something like an AWS SDK client.
 	service interface{}
+	logger  logging.Logger
 }
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
@@ -172,8 +176,6 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	if !ok {
 		return managed.ExternalObservation{}, errors.New(errNotCompute)
 	}
-
-	fmt.Printf("Observing: %+v", cr)
 
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
@@ -221,20 +223,16 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.New(errNotCompute)
 	}
 
-	fmt.Printf("Creating: %+v", cr)
-
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
 
-	rsp, err := client.CreateInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
+	_, err = client.CreateInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
-
-	slog.Info("create", "instance_id", *rsp.Instances[0].InstanceId)
 
 	return managed.ExternalCreation{
 		// Optionally return any details that may be required to connect to the
@@ -248,8 +246,6 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	if !ok {
 		return managed.ExternalUpdate{}, errors.New(errNotCompute)
 	}
-
-	fmt.Printf("Updating: %+v", cr)
 
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 
@@ -310,8 +306,6 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	if !ok {
 		return errors.New(errNotCompute)
 	}
-
-	fmt.Printf("Deleting: %+v", cr)
 
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
