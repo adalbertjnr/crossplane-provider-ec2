@@ -12,7 +12,7 @@ import (
 )
 
 func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*types.Instance, error) {
-	rsp, err := e.c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+	rsp, err := e.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []types.Filter{
 			{Name: aws.String("tag:Name"), Values: []string{resourceName}},
 		},
@@ -50,7 +50,7 @@ func (e *EC2Client) Observe(ctx context.Context, resourceName string) (bool, *ty
 }
 
 func (e *EC2Client) DeleteInstance(ctx context.Context, resource v1alpha1.InstanceConfig) error {
-	rsp, err := e.c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+	rsp, err := e.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		Filters: []types.Filter{
 			{Name: aws.String("tag:Name"), Values: []string{resource.InstanceName}},
 		},
@@ -66,7 +66,7 @@ func (e *EC2Client) DeleteInstance(ctx context.Context, resource v1alpha1.Instan
 		return fmt.Errorf("instance not found for deletion: %w", err)
 	}
 
-	_, err = e.c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+	_, err = e.Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: []string{*rsp.Reservations[0].Instances[0].InstanceId},
 	})
 
@@ -114,5 +114,5 @@ func (e *EC2Client) CreateInstance(ctx context.Context, resource v1alpha1.Instan
 		},
 	}
 
-	return e.c.RunInstances(ctx, params)
+	return e.Client.RunInstances(ctx, params)
 }

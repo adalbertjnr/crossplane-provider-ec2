@@ -135,7 +135,9 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 			return nil, err
 		}
 
-		return ec2.NewFromConfig(cfg), nil
+		client := ec2.NewFromConfig(cfg)
+		return &cloud.EC2Client{Client: client}, nil
+
 	}
 
 	pc := &apisv1alpha1.ProviderConfig{}

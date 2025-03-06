@@ -22,11 +22,11 @@ func AWSClientConnector(ctx context.Context) func(region string) (aws.Config, er
 }
 
 type EC2Client struct {
-	c *ec2.Client
+	Client *ec2.Client
 }
 
 func NewEC2Client(c aws.Config) *EC2Client {
 	client := ec2.NewFromConfig(c)
 
-	return &EC2Client{c: client}
+	return &EC2Client{Client: client}
 }

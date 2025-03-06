@@ -45,7 +45,7 @@ func (e *EC2Client) EC2HandleInstanceTags(current *types.Instance, desired *v1al
 	}
 
 	if len(update) > 0 {
-		_, err := e.c.CreateTags(context.Background(), &ec2.CreateTagsInput{
+		_, err := e.Client.CreateTags(context.Background(), &ec2.CreateTagsInput{
 			Resources: []string{*current.InstanceId},
 			Tags:      update,
 		})
@@ -56,7 +56,7 @@ func (e *EC2Client) EC2HandleInstanceTags(current *types.Instance, desired *v1al
 	}
 
 	if len(remove) > 0 {
-		_, err := e.c.DeleteTags(context.Background(), &ec2.DeleteTagsInput{
+		_, err := e.Client.DeleteTags(context.Background(), &ec2.DeleteTagsInput{
 			Resources: []string{*current.InstanceId},
 			Tags:      update,
 		})
