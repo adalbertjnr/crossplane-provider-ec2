@@ -182,24 +182,30 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, err
 	}
 
-	baseResourceConfig := cr.Spec.ForProvider.InstanceConfig
+	resourceConfig := cr.Spec.ForProvider.InstanceConfig
 
-	found, currentResource, err := client.Observe(ctx, baseResourceConfig.InstanceName)
+	found, currentResource, err := client.Observe(ctx, resourceConfig.InstanceName)
 	if err != nil {
 		return managed.ExternalObservation{}, err
 	}
 
+	c.logger.Info("observe", "status", found)
+
 	if !found {
+		c.logger.Info("observe", "status", "resource not found")
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
-	if !cloud.EC2ResourceUpToDate(currentResource, &baseResourceConfig) {
+	if !cloud.EC2ResourceUpToDate(currentResource, &resourceConfig) {
+		c.logger.Info("observe", "status", "resource exists but must to be updated")
+
 		return managed.ExternalObservation{
 			ResourceExists:   true,
 			ResourceUpToDate: false,
 		}, nil
 	}
 
+	c.logger.Info("observe", "status", "resource exists and do not need to be updated")
 	return managed.ExternalObservation{
 		// Return false when the external resource does not exist. This lets
 		// the managed resource reconciler know that it needs to call Create to
@@ -224,16 +230,17 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
-
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
 
+	c.logger.Info("create", "status", "resource will be created")
 	_, err = client.CreateInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
 
+	c.logger.Info("create", "status", "resource is created successfully")
 	return managed.ExternalCreation{
 		// Optionally return any details that may be required to connect to the
 		// external resource. These will be stored as the connection secret.
@@ -253,6 +260,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalUpdate{}, err
 	}
 
+	c.logger.Info("update", "status", "retrieving resource to be compared against the desired state")
 	current, err := client.GetInstance(ctx, cr.Spec.ForProvider.InstanceConfig.InstanceName)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
@@ -264,6 +272,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		current,
 		&cr.Spec.ForProvider.InstanceConfig,
 	) {
+		c.logger.Info("update", "status", "ami difference", "action", "update resource ami")
 		updates = append(updates, client.EC2HandleInstanceAMI)
 	}
 
@@ -271,6 +280,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		current,
 		&cr.Spec.ForProvider.InstanceConfig,
 	) {
+		c.logger.Info("update", "status", "instance type difference", "action", "update resource type")
 		updates = append(updates, client.EC2HandleInstanceType)
 	}
 
@@ -278,6 +288,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		current,
 		&cr.Spec.ForProvider.InstanceConfig,
 	) {
+		c.logger.Info("update", "status", "instance tags difference", "action", "update resource tags")
 		updates = append(updates, client.EC2HandleInstanceTags)
 	}
 
@@ -285,6 +296,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		current,
 		&cr.Spec.ForProvider.InstanceConfig,
 	) {
+		c.logger.Info("update", "status", "instance security groups difference", "action", "update security groups tags")
 		updates = append(updates, client.EC2HandleInstanceSecurityGroups)
 	}
 
@@ -312,6 +324,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 		return err
 	}
 
+	c.logger.Info("delete", "status", "resource is being deleted")
 	return client.DeleteInstance(ctx, cr.Spec.ForProvider.InstanceConfig)
 }
 
@@ -320,14 +333,15 @@ func clientSelector(ctx context.Context, c *external, region string) (*cloud.EC2
 
 	cc, ok := c.service.(*cloud.EC2Client)
 	if ok {
+		c.logger.Info("client selector", "client selected", "external")
 		client = cc
 	} else {
 		cfg, err := cloud.AWSClientConnector(ctx)(region)
-
 		if err != nil {
 			return nil, errors.New(errAwsClient)
 		}
 
+		c.logger.Info("client selector", "client selected", "internal")
 		cc := cloud.NewEC2Client(cfg)
 		client = cc
 	}
