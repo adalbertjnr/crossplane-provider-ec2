@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
+	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 )
 
 func (e *EC2Client) HandleType(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
@@ -39,6 +40,13 @@ func (e *EC2Client) HandleTags(current *types.Instance, desired *v1alpha1.Instan
 	}
 
 	for _, tag := range current.Tags {
+		tagKey, tagValue := *tag.Key, *tag.Value
+
+		if tagKey == property.CUSTOM_PROVIDER_KEY.String() &&
+			tagValue == property.CUSTOM_PROVIDER_VALUE.String() {
+			continue
+		}
+
 		if _, exists := desired.InstanceTags[*tag.Key]; !exists {
 			remove = append(remove, types.Tag{Key: tag.Key})
 		}
@@ -58,7 +66,7 @@ func (e *EC2Client) HandleTags(current *types.Instance, desired *v1alpha1.Instan
 	if len(remove) > 0 {
 		_, err := e.Client.DeleteTags(context.Background(), &ec2.DeleteTagsInput{
 			Resources: []string{*current.InstanceId},
-			Tags:      update,
+			Tags:      remove,
 		})
 
 		if err != nil {

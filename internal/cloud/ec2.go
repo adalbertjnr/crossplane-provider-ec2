@@ -5,10 +5,19 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/pkg/errors"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
+	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
+	"github.com/crossplane/provider-customcomputeprovider/internal/generic"
+)
+
+const (
+	errCustomProviderTag = "custom provider tag not found"
+	errResourceNotFound  = "resource not found"
 )
 
 func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*types.Instance, error) {
@@ -19,7 +28,6 @@ func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*type
 	})
 
 	if err != nil {
-		slog.Error("failed to describe ec2 instance", "err", err)
 		return nil, fmt.Errorf("failed to describe ec2 instance: %w", err)
 	}
 
@@ -27,7 +35,36 @@ func (e *EC2Client) GetInstance(ctx context.Context, resourceName string) (*type
 		return nil, nil
 	}
 
-	return &rsp.Reservations[0].Instances[0], nil
+	for _, reservation := range rsp.Reservations {
+		for _, instance := range reservation.Instances {
+			if managedInstance, err := getManagedResource(instance); err == nil {
+				return &managedInstance, nil
+			}
+		}
+	}
+
+	return nil, errors.Wrap(err, errResourceNotFound)
+}
+
+func getManagedResource(instance types.Instance) (types.Instance, error) {
+	resourceState := instance.State.Name
+
+	tm := generic.FromSliceToMapWithValues(instance.Tags, func(tag types.Tag) (string, string) {
+		return *tag.Key, *tag.Value
+	})
+
+	if v, found := tm[property.CUSTOM_PROVIDER_KEY.String()]; !found && v != property.CUSTOM_PROVIDER_VALUE.String() {
+		return types.Instance{}, errors.New(errCustomProviderTag)
+	}
+
+	switch resourceState {
+	case types.InstanceStateNameStopped,
+		types.InstanceStateNameRunning,
+		types.InstanceStateNamePending:
+		return instance, nil
+	default:
+		return types.Instance{}, errors.New(errResourceNotFound)
+	}
 }
 
 func (e *EC2Client) Observe(ctx context.Context, resourceName string) (bool, *types.Instance, error) {
@@ -35,6 +72,9 @@ func (e *EC2Client) Observe(ctx context.Context, resourceName string) (bool, *ty
 
 	instance, err := e.GetInstance(ctx, resourceName)
 	if err != nil {
+		if err.Error() == errResourceNotFound {
+			return !exists, nil, nil
+		}
 		return !exists, nil, err
 	}
 
@@ -82,6 +122,11 @@ func (e *EC2Client) CreateInstance(ctx context.Context, resource v1alpha1.Instan
 	for key, value := range resource.InstanceTags {
 		computeInstanceTags = append(computeInstanceTags, types.Tag{Key: &key, Value: &value})
 	}
+
+	cpManagedKey := property.CUSTOM_PROVIDER_KEY.String()
+	cpManagedValue := property.CUSTOM_PROVIDER_VALUE.String()
+
+	computeInstanceTags = append(computeInstanceTags, types.Tag{Key: &cpManagedKey, Value: &cpManagedValue})
 
 	blockDeviceMapping := make([]types.BlockDeviceMapping, len(resource.Storage))
 

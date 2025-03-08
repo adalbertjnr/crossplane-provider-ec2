@@ -4,6 +4,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
+	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 	"github.com/crossplane/provider-customcomputeprovider/internal/generic"
 )
 
@@ -16,13 +17,32 @@ func NeedsInstanceTypeUpdate(current *types.Instance, desired *v1alpha1.Instance
 }
 
 func NeedsTagsUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
-	currentTags := generic.FromSliceToMap(current.Tags, func(tag types.Tag) string {
-		return *tag.Key
-	})
+	currentTags := generic.FromSliceToMapWithValues(current.Tags,
+		func(tag types.Tag) (string, string) {
+			return *tag.Key, *tag.Value
+		})
 
-	for dk := range desired.InstanceTags {
-		if _, found := currentTags[dk]; !found {
+	for dk, dv := range desired.InstanceTags {
+		if cv, found := currentTags[dk]; !found {
 			return true
+		} else {
+			if cv != dv {
+				return true
+			}
+		}
+	}
+
+	for ck, cv := range currentTags {
+		if dv, found := desired.InstanceTags[ck]; !found {
+			if ck == property.CUSTOM_PROVIDER_KEY.String() &&
+				cv == property.CUSTOM_PROVIDER_VALUE.String() {
+				continue
+			}
+			return true
+		} else {
+			if cv != dv {
+				return true
+			}
 		}
 	}
 

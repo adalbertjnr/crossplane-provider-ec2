@@ -51,6 +51,12 @@ fallthrough: submodules
 	@echo Initial setup complete. Running make again . . .
 	@make
 
+custom-build: build
+	docker tag build-0703d10b/provider-customcomputeprovider-amd64 public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.1.0
+	docker push public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.1.0
+	crossplane xpkg build --package-root=./package
+	crane push package/customcomputeprovider-9667877f13e1.xpkg public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.3.1
+
 # integration tests
 e2e.run: test-integration
 

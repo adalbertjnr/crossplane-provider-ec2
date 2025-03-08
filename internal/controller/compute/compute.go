@@ -189,7 +189,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, err
 	}
 
-	if !found {
+	if !found || currentResource == nil {
 		c.logger.Info("observe check",
 			"status", "resource not found",
 			"action", "resource will be created",
