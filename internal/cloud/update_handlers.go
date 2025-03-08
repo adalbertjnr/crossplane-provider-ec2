@@ -9,20 +9,20 @@ import (
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 )
 
-func (e *EC2Client) EC2HandleInstanceType(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleType(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
-func (e *EC2Client) EC2HandleInstanceAMI(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleAMI(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
-func (e *EC2Client) EC2HandleInstanceVolume(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleVolume(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
-func (e *EC2Client) EC2HandleInstanceSecurityGroups(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleSecurityGroups(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
 
-func (e *EC2Client) EC2HandleInstanceTags(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleTags(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	tm := make(map[string]string)
 
 	for _, tag := range current.Tags {

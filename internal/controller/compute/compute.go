@@ -36,10 +36,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	apisv1alpha1 "github.com/crossplane/provider-customcomputeprovider/apis/v1alpha1"
 	"github.com/crossplane/provider-customcomputeprovider/internal/cloud"
+	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 	"github.com/crossplane/provider-customcomputeprovider/internal/features"
 )
 
@@ -287,51 +287,80 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		"desired object", desiredConfig,
 	)
 
-	updates := []func(*ec2types.Instance, *v1alpha1.InstanceConfig) error{}
+	updateFuncs := map[property.Property]func() error{
 
-	if cloud.InstanceAMIUpdate(currentConfig, &desiredConfig) {
-		c.logger.Info("update",
-			"status", "ami difference",
-			"action", "update resource ami",
-			"current spec", *currentConfig.ImageId,
-			"desired spec", desiredConfig.InstanceAMI,
-		)
-		updates = append(updates, client.EC2HandleInstanceAMI)
+		property.VOLUME: func() error {
+			c.logger.Info("update",
+				"status", "volume difference",
+				"action", "update resource volume",
+				"current spec", currentConfig.BlockDeviceMappings,
+				"desired spec", desiredConfig.Storage,
+			)
+
+			return client.HandleVolume(currentConfig, &desiredConfig)
+		},
+
+		property.AMI: func() error {
+			c.logger.Info("update",
+				"status", "ami difference",
+				"action", "update resource ami",
+				"current spec", *currentConfig.ImageId,
+				"desired spec", desiredConfig.InstanceAMI,
+			)
+			return client.HandleAMI(currentConfig, &desiredConfig)
+		},
+
+		property.INSTANCE_TYPE: func() error {
+			c.logger.Info("update",
+				"status", "instance type difference",
+				"action", "update resource type",
+				"current spec", currentConfig.InstanceType,
+				"desired spec", desiredConfig.InstanceType,
+			)
+			return client.HandleType(currentConfig, &desiredConfig)
+		},
+
+		property.TAGS: func() error {
+			c.logger.Info("update",
+				"status", "instance tags difference",
+				"action", "update resource tags",
+				"current spec", currentConfig.Tags,
+				"desired spec", desiredConfig.InstanceTags,
+			)
+			return client.HandleTags(currentConfig, &desiredConfig)
+		},
+
+		property.SECURITY_GROUPS: func() error {
+			c.logger.Info("update",
+				"status", "instance security groups difference",
+				"action", "update security groups tags",
+				"current spec", currentConfig.SecurityGroups,
+				"desired spec", desiredConfig.Networking.InstanceSecurityGroups,
+			)
+			return client.HandleSecurityGroups(currentConfig, &desiredConfig)
+		},
 	}
 
-	if cloud.InstanceTypeUpdate(currentConfig, &desiredConfig) {
-		c.logger.Info("update",
-			"status", "instance type difference",
-			"action", "update resource type",
-			"current spec", currentConfig.InstanceType,
-			"desired spec", desiredConfig.InstanceType,
-		)
-		updates = append(updates, client.EC2HandleInstanceType)
-	}
+	for key, updateFunc := range updateFuncs {
+		update := false
 
-	if cloud.InstanceTagsUpdate(currentConfig, &desiredConfig) {
-		c.logger.Info("update",
-			"status", "instance tags difference",
-			"action", "update resource tags",
-			"current spec", currentConfig.Tags,
-			"desired spec", desiredConfig.InstanceTags,
-		)
-		updates = append(updates, client.EC2HandleInstanceTags)
-	}
+		switch key {
+		case property.AMI:
+			update = cloud.NeedsAMIUpdate(currentConfig, &desiredConfig)
+		case property.VOLUME:
+		case property.SECURITY_GROUPS:
+			update = cloud.NeedsSecurityGroupsUpdate(currentConfig, &desiredConfig)
+		case property.TAGS:
+			update = cloud.NeedsTagsUpdate(currentConfig, &desiredConfig)
+		case property.INSTANCE_TYPE:
+			update = cloud.NeedsInstanceTypeUpdate(currentConfig, &desiredConfig)
+		}
 
-	if cloud.InstanceSecurityGroupsUpdate(currentConfig, &desiredConfig) {
-		c.logger.Info("update",
-			"status", "instance security groups difference",
-			"action", "update security groups tags",
-			"current spec", currentConfig.SecurityGroups,
-			"desired spec", desiredConfig.Networking.InstanceSecurityGroups,
-		)
-		updates = append(updates, client.EC2HandleInstanceSecurityGroups)
-	}
-
-	for _, update := range updates {
-		if err := update(currentConfig, &desiredConfig); err != nil {
-			return managed.ExternalUpdate{}, err
+		if update {
+			c.logger.Info("update", "current proccess working on", key.String())
+			if err := updateFunc(); err != nil {
+				return managed.ExternalUpdate{}, err
+			}
 		}
 	}
 
