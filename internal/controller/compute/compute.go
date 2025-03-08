@@ -190,16 +190,18 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	}
 
 	if !found {
-		c.logger.Info("observe",
+		c.logger.Info("observe check",
 			"status", "resource not found",
+			"action", "resource will be created",
 			"object", resourceConfig,
 		)
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
 	if !cloud.ResourceUpToDate(c.logger, currentResource, &resourceConfig) {
-		c.logger.Info("observe",
-			"status", "resource exists but must to be updated",
+		c.logger.Info("observe check",
+			"status", "resource need to be updated",
+			"action", "resource will be updated",
 			"object", resourceConfig,
 		)
 
@@ -210,7 +212,8 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	}
 
 	c.logger.Info("observe",
-		"status", "resource exists and do not need to be updated",
+		"status", "resource is up to date",
+		"action", "no need",
 		"object", resourceConfig,
 	)
 	return managed.ExternalObservation{
@@ -280,12 +283,6 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
-
-	c.logger.Info("update",
-		"status", "retrieving resource to be compared against the desired state",
-		"current object", currentConfig,
-		"desired object", desiredConfig,
-	)
 
 	updateFuncs := map[property.Property]func() error{
 
