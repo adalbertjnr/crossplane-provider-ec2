@@ -7,23 +7,54 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
-	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 )
 
-func (e *EC2Client) HandleType(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleType(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+	if err := stopInstance(ctx,
+		e.Client,
+		current.InstanceId,
+	); err != nil {
+		return err
+	}
+
+	_, err := e.Client.ModifyInstanceAttribute(ctx, &ec2.ModifyInstanceAttributeInput{
+		InstanceId: current.InstanceId,
+		InstanceType: &types.AttributeValue{
+			Value: &desired.InstanceType,
+		},
+	})
+
+	if err != nil {
+		return err
+	}
+
+	return startInstance(ctx, e.Client, current.InstanceId)
+}
+
+func startInstance(ctx context.Context, c *ec2.Client, instanceId *string) error {
+	_, err := c.StartInstances(ctx, &ec2.StartInstancesInput{
+		InstanceIds: []string{*instanceId},
+	})
+	return err
+}
+func stopInstance(ctx context.Context, c *ec2.Client, instanceId *string) error {
+	_, err := c.StopInstances(ctx, &ec2.StopInstancesInput{
+		InstanceIds: []string{*instanceId},
+	})
+	return err
+}
+
+func (e *EC2Client) HandleAMI(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
-func (e *EC2Client) HandleAMI(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleVolume(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
-func (e *EC2Client) HandleVolume(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
-	return nil
-}
-func (e *EC2Client) HandleSecurityGroups(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleSecurityGroups(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	return nil
 }
 
-func (e *EC2Client) HandleTags(current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+func (e *EC2Client) HandleTags(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	tm := make(map[string]string)
 
 	for _, tag := range current.Tags {
@@ -35,20 +66,19 @@ func (e *EC2Client) HandleTags(current *types.Instance, desired *v1alpha1.Instan
 
 	for key, value := range desired.InstanceTags {
 		if _, exists := tm[key]; !exists {
+
 			update = append(update, types.Tag{Key: &key, Value: &value})
 		}
 	}
 
 	for _, tag := range current.Tags {
-		tagKey, tagValue := *tag.Key, *tag.Value
-
-		if tagKey == property.CUSTOM_PROVIDER_KEY.String() &&
-			tagValue == property.CUSTOM_PROVIDER_VALUE.String() {
+		tagKey := *tag.Key
+		if tagKey == "Name" {
 			continue
 		}
 
 		if _, exists := desired.InstanceTags[*tag.Key]; !exists {
-			remove = append(remove, types.Tag{Key: tag.Key})
+			remove = append(remove, types.Tag{Key: &tagKey})
 		}
 	}
 
