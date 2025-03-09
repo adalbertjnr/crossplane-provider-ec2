@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -159,7 +160,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errNewClient)
 	}
 
-	return &external{service: svc, logger: c.logger}, nil
+	return &external{service: svc, logger: c.logger, kube: c.kube}, nil
 }
 
 // An ExternalClient observes, then either creates, updates, or deletes an
@@ -169,6 +170,7 @@ type external struct {
 	// would be something like an AWS SDK client.
 	service interface{}
 	logger  logging.Logger
+	kube    client.Client
 }
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
@@ -184,25 +186,29 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	resourceConfig := cr.Spec.ForProvider.InstanceConfig
 
-	found, currentResource, err := client.Observe(ctx, resourceConfig.InstanceName)
+	if cr.Status.AtProvider.InstanceID == "" {
+		return managed.ExternalObservation{ResourceExists: false}, nil
+	}
+
+	resourceFound, currentResource, err := client.Observe(ctx, cr, resourceConfig.InstanceName)
 	if err != nil {
 		return managed.ExternalObservation{}, err
 	}
 
-	if !found || currentResource == nil {
+	if !resourceFound {
 		c.logger.Info("observe check",
-			"status", "resource not found",
-			"action", "resource will be created",
-			"object", resourceConfig,
+			"message", "resource not found, will initiate creation",
+			"instanceName", resourceConfig.InstanceName,
+			"desiredInstanceConfig", resourceConfig,
 		)
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
 	if !cloud.ResourceUpToDate(c.logger, currentResource, &resourceConfig) {
 		c.logger.Info("observe check",
-			"status", "resource need to be updated",
-			"action", "resource will be updated",
-			"object", resourceConfig,
+			"message", "resource is outdated, an update is required",
+			"currentResource", currentResource,
+			"desiredResource", resourceConfig,
 		)
 
 		return managed.ExternalObservation{
@@ -211,10 +217,10 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		}, nil
 	}
 
-	c.logger.Info("observe",
-		"status", "resource is up to date",
-		"action", "no need",
-		"object", resourceConfig,
+	c.logger.Info("observe check",
+		"message", "resource is up to date",
+		"currentResource", currentResource,
+		"desiredResource", resourceConfig,
 	)
 	return managed.ExternalObservation{
 		// Return false when the external resource does not exist. This lets
@@ -239,26 +245,42 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.New(errNotCompute)
 	}
 
-	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
+	cc, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
 
 	resourceConfig := cr.Spec.ForProvider.InstanceConfig
 
-	c.logger.Info("create",
-		"status", "resource will be created",
-		"object", resourceConfig,
-	)
-	_, err = client.CreateInstance(ctx, resourceConfig)
+	runOutput, err := cc.CreateInstance(ctx, resourceConfig)
 	if err != nil {
 		return managed.ExternalCreation{}, err
 	}
 
+	instanceID := *runOutput.Instances[0].InstanceId
+	instanceStatus := string(runOutput.Instances[0].State.Name)
+
+	patchCR := cr.DeepCopy()
+	patchCR.Status.AtProvider = v1alpha1.ComputeObservation{
+		InstanceID: instanceID,
+		State:      instanceStatus,
+	}
+
+	mergeSource := client.MergeFrom(cr)
+
+	if err := c.kube.Status().Patch(ctx, patchCR, mergeSource); err != nil {
+		return managed.ExternalCreation{}, errors.Wrap(err, "failed to update compute status after resource creation")
+	}
+
 	c.logger.Info("create",
-		"status", "resource is created successfully",
-		"object", resourceConfig,
+		"action", "resource creation initiated",
+		"status", "resource successfully created",
+		"resourceID", cr.Status.AtProvider.InstanceID,
+		"region", cr.Spec.ForProvider.AWSConfig.Region,
+		"resourceConfig", resourceConfig,
+		"reason", "new resource provisioning",
 	)
+
 	return managed.ExternalCreation{
 		// Optionally return any details that may be required to connect to the
 		// external resource. These will be stored as the connection secret.
@@ -279,62 +301,52 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalUpdate{}, err
 	}
 
-	currentConfig, err := client.GetInstance(ctx, desiredConfig.InstanceName)
+	instanceId := cr.Status.AtProvider.InstanceID
+
+	currentConfig, err := client.GetInstanceByID(ctx, instanceId)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
 
 	updateFuncs := map[property.Property]func() error{
-
 		property.VOLUME: func() error {
-			c.logger.Info("update",
-				"status", "volume difference",
-				"action", "update resource volume",
-				"current spec", currentConfig.BlockDeviceMappings,
-				"desired spec", desiredConfig.Storage,
+			c.logger.Info("checking volume configuration differences",
+				"current volume", currentConfig.BlockDeviceMappings,
+				"desired volume", desiredConfig.Storage,
 			)
-
-			return client.HandleVolume(currentConfig, &desiredConfig)
+			return client.HandleVolume(ctx, currentConfig, &desiredConfig)
 		},
 
 		property.AMI: func() error {
-			c.logger.Info("update",
-				"status", "ami difference",
-				"action", "update resource ami",
-				"current spec", *currentConfig.ImageId,
-				"desired spec", desiredConfig.InstanceAMI,
+			c.logger.Info("checking AMI configuration differences",
+				"current AMI", *currentConfig.ImageId,
+				"desired AMI", desiredConfig.InstanceAMI,
 			)
-			return client.HandleAMI(currentConfig, &desiredConfig)
+			return client.HandleAMI(ctx, currentConfig, &desiredConfig)
 		},
 
 		property.INSTANCE_TYPE: func() error {
-			c.logger.Info("update",
-				"status", "instance type difference",
-				"action", "update resource type",
-				"current spec", currentConfig.InstanceType,
-				"desired spec", desiredConfig.InstanceType,
+			c.logger.Info("checking instance type configuration differences",
+				"current type", currentConfig.InstanceType,
+				"desired type", desiredConfig.InstanceType,
 			)
-			return client.HandleType(currentConfig, &desiredConfig)
+			return client.HandleType(ctx, currentConfig, &desiredConfig)
 		},
 
 		property.TAGS: func() error {
-			c.logger.Info("update",
-				"status", "instance tags difference",
-				"action", "update resource tags",
-				"current spec", currentConfig.Tags,
-				"desired spec", desiredConfig.InstanceTags,
+			c.logger.Info("checking tag configuration differences",
+				"current tags", processTags(currentConfig.Tags),
+				"desired tags", desiredConfig.InstanceTags,
 			)
-			return client.HandleTags(currentConfig, &desiredConfig)
+			return client.HandleTags(ctx, currentConfig, &desiredConfig)
 		},
 
 		property.SECURITY_GROUPS: func() error {
-			c.logger.Info("update",
-				"status", "instance security groups difference",
-				"action", "update security groups tags",
-				"current spec", currentConfig.SecurityGroups,
-				"desired spec", desiredConfig.Networking.InstanceSecurityGroups,
+			c.logger.Info("checking security groups configuration differences",
+				"current security groups", currentConfig.SecurityGroups,
+				"desired security groups", desiredConfig.Networking.InstanceSecurityGroups,
 			)
-			return client.HandleSecurityGroups(currentConfig, &desiredConfig)
+			return client.HandleSecurityGroups(ctx, currentConfig, &desiredConfig)
 		},
 	}
 
@@ -354,10 +366,11 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		}
 
 		if update {
-			c.logger.Info("update", "current proccess working on", key.String())
+			c.logger.Info("updating resource", "property", key.String())
 			if err := updateFunc(); err != nil {
 				return managed.ExternalUpdate{}, err
 			}
+			c.logger.Info("successfully updated resource", "property", key.String())
 		}
 	}
 
@@ -380,11 +393,30 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 		return err
 	}
 
+	instanceId := cr.Status.AtProvider.InstanceID
+
 	c.logger.Info("delete",
+		"action", "resource deletion initiated",
 		"status", "resource is being deleted",
-		"object", resourceConfig,
+		"resourceID", cr.Status.AtProvider.InstanceID,
+		"region", cr.Spec.ForProvider.AWSConfig.Region,
+		"resourceConfig", resourceConfig,
+		"reason", "cleanup process",
 	)
-	return client.DeleteInstance(ctx, resourceConfig)
+
+	return client.DeleteInstanceById(ctx, instanceId)
+}
+
+func processTags(tags []ec2types.Tag) map[string]string {
+	m := make(map[string]string, len(tags))
+
+	for _, v := range tags {
+		if _, exists := m[*v.Key]; !exists {
+			m[*v.Key] = *v.Value
+		}
+	}
+
+	return m
 }
 
 func clientSelector(ctx context.Context, c *external, region string) (*cloud.EC2Client, error) {

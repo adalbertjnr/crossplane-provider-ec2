@@ -4,7 +4,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
-	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 	"github.com/crossplane/provider-customcomputeprovider/internal/generic"
 )
 
@@ -34,8 +33,7 @@ func NeedsTagsUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) 
 
 	for ck, cv := range currentTags {
 		if dv, found := desired.InstanceTags[ck]; !found {
-			if ck == property.CUSTOM_PROVIDER_KEY.String() &&
-				cv == property.CUSTOM_PROVIDER_VALUE.String() {
+			if ck == "Name" {
 				continue
 			}
 			return true
@@ -69,7 +67,7 @@ func ResourceUpToDate(l logging.Logger, current *types.Instance, desired *v1alph
 	tagExp := NeedsTagsUpdate(current, desired)
 	secExp := NeedsSecurityGroupsUpdate(current, desired)
 
-	l.Info("check",
+	l.Info("observe check",
 		"needs ami update", amiExp,
 		"needs type update", typExp,
 		"needs tag update", tagExp,
