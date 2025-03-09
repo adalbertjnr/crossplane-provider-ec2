@@ -60,6 +60,7 @@ type InstanceConfig struct {
 type ComputeObservation struct {
 	ObservableField string `json:"observableField,omitempty"`
 	State           string `json:"state"`
+	InstanceID      string `json:"instanceID"`
 }
 
 // A ComputeSpec defines the desired state of a Compute.
