@@ -305,11 +305,14 @@ spec:
               atProvider:
                 description: ComputeObservation are the observable fields of a Compute.
                 properties:
+                  instanceID:
+                    type: string
                   observableField:
                     type: string
                   state:
                     type: string
                 required:
+                - instanceID
                 - state
                 type: object
               conditions:
