@@ -13,3 +13,10 @@ const (
 func (p Property) String() string {
 	return string(p)
 }
+
+type VolumeProperty string
+
+const (
+	VOLUME_UPGRADE VolumeProperty = "VolumeUpgrade"
+	VOLUME_TYPE    VolumeProperty = "VolumeType"
+)
