@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,8 +10,74 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
-	volumeproperty "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 )
+
+const errSubnetNotFound = "error subnet not found"
+
+type VolumeCommand interface {
+	Run(ctx context.Context, c *EC2Client) error
+}
+
+type cvCommand struct {
+	instanceId string
+	deviceName string
+	volumeType string
+	diskSize   int32
+	subnetId   string
+}
+
+func (c *cvCommand) Run(ctx context.Context, e *EC2Client) error {
+	availabilityZone, err := fetchAZ(ctx, e.Client, c.subnetId)
+	if err != nil {
+		return err
+	}
+
+	return e.createVolume(ctx, c.instanceId, c.deviceName, c.volumeType, availabilityZone, c.diskSize)
+}
+
+type rvCommand struct {
+	volumeId string
+	diskSize int32
+}
+
+func (c *rvCommand) Run(ctx context.Context, e *EC2Client) error {
+	return e.updateVolumeSize(ctx, c.volumeId, c.diskSize)
+}
+
+type cvtCommand struct {
+	volumeId   string
+	volumeType string
+}
+
+func (c *cvtCommand) Run(ctx context.Context, e *EC2Client) error {
+	return e.updateVolumeType(ctx, c.volumeId, c.volumeType)
+}
+
+type dtvCommand struct {
+	volumeId   string
+	deviceName string
+	instanceId string
+}
+
+func (c *dtvCommand) Run(ctx context.Context, e *EC2Client) error {
+	return e.detachVolume(ctx, c.deviceName, c.instanceId, c.volumeId)
+}
+
+func fetchAZ(ctx context.Context, c *ec2.Client, subnetID string) (string, error) {
+	output, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
+		SubnetIds: []string{subnetID},
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	if len(output.Subnets) > 0 {
+		return *output.Subnets[0].AvailabilityZoneId, nil
+	}
+
+	return "", errors.New(errSubnetNotFound)
+}
 
 func (e *EC2Client) HandleType(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	if err := stopInstance(ctx,
@@ -64,6 +131,60 @@ func (e *EC2Client) HandleSecurityGroups(ctx context.Context, current *types.Ins
 	return err
 }
 
+func (e *EC2Client) createVolume(ctx context.Context, instanceId, deviceName, volumeType, availabilityZone string, volumeSize int32) error {
+	volume, err := e.Client.CreateVolume(ctx, &ec2.CreateVolumeInput{
+		VolumeType:       types.VolumeType(volumeType),
+		Size:             &volumeSize,
+		AvailabilityZone: &availabilityZone,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	_, err = e.Client.AttachVolume(ctx, &ec2.AttachVolumeInput{
+		Device:     &deviceName,
+		InstanceId: &instanceId,
+		VolumeId:   volume.VolumeId,
+	})
+
+	return err
+}
+
+func (e *EC2Client) detachVolume(ctx context.Context, deviceName, instanceId, volumeId string) error {
+	_, err := e.Client.DetachVolume(ctx, &ec2.DetachVolumeInput{
+		Device:     &deviceName,
+		InstanceId: &instanceId,
+		VolumeId:   &volumeId,
+	})
+
+	return err
+}
+
+func (e *EC2Client) updateVolumeSize(ctx context.Context, volumeId string, volumeSize int32) error {
+	_, err := e.Client.ModifyVolume(ctx, &ec2.ModifyVolumeInput{
+		VolumeId: &volumeId,
+		Size:     &volumeSize,
+	})
+
+	return err
+}
+
+func (e *EC2Client) updateVolumeType(ctx context.Context, volumeId, volumeType string) error {
+	_, err := e.Client.ModifyVolume(ctx, &ec2.ModifyVolumeInput{
+		VolumeId:   &volumeId,
+		VolumeType: types.VolumeType(volumeType),
+	})
+
+	return err
+}
+
+type volumeInformation struct {
+	volumeID   string
+	volumeType string
+	volumeSize int32
+}
+
 func (e *EC2Client) HandleVolume(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	output, err := e.Client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
 		Filters: []types.Filter{
@@ -75,51 +196,80 @@ func (e *EC2Client) HandleVolume(ctx context.Context, current *types.Instance, d
 		return err
 	}
 
-	updateFuncs := map[volumeproperty.VolumeProperty]func(c *types.Instance) error{
-		volumeproperty.VOLUME_UPGRADE: func(c *types.Instance) error {
+	volumeDataMap := make(map[string]volumeInformation)
 
-			return nil
-		},
+	for _, volume := range output.Volumes {
+		if volume.Attachments != nil {
 
-		volumeproperty.VOLUME_TYPE: func(c *types.Instance) error {
+			volumeID := *volume.VolumeId
+			volumeDeviceName := *volume.Attachments[0].Device
+			volumeSize := *volume.Size
+			volumeType := string(volume.VolumeType)
 
-			return nil
-		},
-	}
-
-	var updateKeys []volumeproperty.VolumeProperty
-
-	for i, volume := range output.Volumes {
-		volumeSize := *volume.Size
-		volumeType := string(volume.VolumeType)
-
-		if desired.Storage[i].DiskSize != volumeSize && desired.Storage[i].DiskSize > volumeSize {
-			updateKeys = append(updateKeys, volumeproperty.VOLUME_UPGRADE)
-		}
-
-		if desired.Storage[i].InstanceDisk != volumeType {
-			updateKeys = append(updateKeys, volumeproperty.VOLUME_TYPE)
-		}
-	}
-
-	turnOffChannel := make(chan struct{})
-
-	if len(updateKeys) > 0 {
-		go e.turnOff(ctx, turnOffChannel, *current.InstanceId)
-	}
-
-	<-turnOffChannel
-
-	for _, updateKey := range updateKeys {
-		if updateFunc, appended := updateFuncs[updateKey]; appended {
-
-			if err := updateFunc(current); err != nil {
-				return err
+			volumeDataMap[volumeDeviceName] = volumeInformation{
+				volumeID:   volumeID,
+				volumeType: volumeType,
+				volumeSize: volumeSize,
 			}
 		}
 	}
 
-	return e.turnOn(ctx, *current.InstanceId)
+	var commands []VolumeCommand
+
+	for _, dv := range desired.Storage {
+		volume, volumeExists := volumeDataMap[dv.DeviceName]
+
+		switch {
+		case !volumeExists:
+			commands = append(commands, &cvCommand{
+				instanceId: *current.InstanceId,
+				deviceName: dv.DeviceName,
+				volumeType: dv.InstanceDisk,
+				diskSize:   dv.DiskSize,
+			})
+			continue
+
+		case dv.DiskSize > volume.volumeSize:
+			commands = append(commands, &rvCommand{
+				volumeId: volume.volumeID,
+				diskSize: volume.volumeSize,
+			})
+
+		case dv.InstanceDisk != volume.volumeType:
+			commands = append(commands, &cvtCommand{
+				volumeId:   volume.volumeID,
+				volumeType: volume.volumeType,
+			})
+		}
+	}
+
+	for _, cvolume := range output.Volumes {
+		if _, exists := volumeDataMap[*cvolume.Attachments[0].Device]; exists {
+			commands = append(commands, &dtvCommand{
+				volumeId:   *cvolume.VolumeId,
+				deviceName: *cvolume.Attachments[0].Device,
+				instanceId: *current.InstanceId,
+			})
+		}
+	}
+
+	if len(commands) > 0 {
+		turnOffChannel := make(chan struct{})
+
+		go e.turnOff(ctx, turnOffChannel, *current.InstanceId)
+
+		<-turnOffChannel
+
+		for _, cmd := range commands {
+			if err := cmd.Run(ctx, e); err != nil {
+				return err
+			}
+		}
+
+		return e.turnOn(ctx, *current.InstanceId)
+	}
+
+	return nil
 }
 
 func (c *EC2Client) turnOff(ctx context.Context, turnOffChannel chan<- struct{}, instanceId string) error {

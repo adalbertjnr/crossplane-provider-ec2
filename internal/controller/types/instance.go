@@ -17,6 +17,8 @@ func (p Property) String() string {
 type VolumeProperty string
 
 const (
-	VOLUME_UPGRADE VolumeProperty = "VolumeUpgrade"
-	VOLUME_TYPE    VolumeProperty = "VolumeType"
+	VOLUME_UPGRADE    VolumeProperty = "VolumeUpgrade"
+	VOLUME_TYPE       VolumeProperty = "VolumeType"
+	VOLUME_ATTACHMENT VolumeProperty = "VolumeAttachment"
+	VOLUME_CREATE     VolumeProperty = "VolumeCreate"
 )
