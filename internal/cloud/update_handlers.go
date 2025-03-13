@@ -27,7 +27,7 @@ type cvCommand struct {
 }
 
 func (c *cvCommand) Run(ctx context.Context, e *EC2Client) error {
-	availabilityZone, err := fetchAZ(ctx, e.Client, c.subnetId)
+	availabilityZone, err := getAvailabilityZone(ctx, e.Client, c.subnetId)
 	if err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func (c *dtvCommand) Run(ctx context.Context, e *EC2Client) error {
 	return e.detachVolume(ctx, c.deviceName, c.instanceId, c.volumeId)
 }
 
-func fetchAZ(ctx context.Context, c *ec2.Client, subnetID string) (string, error) {
+func getAvailabilityZone(ctx context.Context, c *ec2.Client, subnetID string) (string, error) {
 	output, err := c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
 		SubnetIds: []string{subnetID},
 	})
@@ -140,6 +140,29 @@ func (e *EC2Client) createVolume(ctx context.Context, instanceId, deviceName, vo
 
 	if err != nil {
 		return err
+	}
+
+	ticker := time.NewTicker(time.Second * 10)
+
+	for {
+		<-ticker.C
+
+		output, err := e.Client.DescribeVolumeStatus(ctx, &ec2.DescribeVolumeStatusInput{
+			VolumeIds: []string{*volume.VolumeId},
+		})
+
+		if err != nil {
+			return err
+		}
+
+		status := output.VolumeStatuses[0].VolumeStatus.Status
+		desiredState := types.VolumeStatusInfoStatus(types.StateAvailable)
+
+		if status != desiredState {
+			continue
+		}
+
+		break
 	}
 
 	_, err = e.Client.AttachVolume(ctx, &ec2.AttachVolumeInput{
