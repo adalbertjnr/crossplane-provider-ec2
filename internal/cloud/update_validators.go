@@ -52,8 +52,18 @@ func NeedsSecurityGroupsUpdate(current *types.Instance, desired *v1alpha1.Instan
 		return *secId.GroupId
 	})
 
+	desiredSGIdsMap := generic.FromSliceToMap(desired.Networking.InstanceSecurityGroups, func(sgGroup string) string {
+		return sgGroup
+	})
+
 	for _, dsg := range desired.Networking.InstanceSecurityGroups {
 		if _, exists := currentSGIds[dsg]; !exists {
+			return true
+		}
+	}
+
+	for k := range currentSGIds {
+		if _, exists := desiredSGIdsMap[k]; !exists {
 			return true
 		}
 	}
