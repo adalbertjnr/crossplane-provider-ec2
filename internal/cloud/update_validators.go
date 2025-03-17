@@ -52,12 +52,25 @@ func NeedsTagsUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) 
 }
 
 func NeedsSecurityGroupsUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
-	currentSGIds := generic.FromSliceToMap(current.SecurityGroups, func(secId types.GroupIdentifier) string {
-		return *secId.GroupId
-	})
+	currentMapSGIds := generic.FromSliceToMap(current.SecurityGroups,
+		func(security types.GroupIdentifier) string { return *security.GroupId },
+	)
 
-	for _, dsg := range desired.Networking.InstanceSecurityGroups {
-		if _, exists := currentSGIds[dsg]; !exists {
+	desiredMapSGIds := generic.FromSliceToMap(desired.Networking.InstanceSecurityGroups,
+		func(securityGroupId string) string { return securityGroupId },
+	)
+
+	currentSGIds := current.SecurityGroups
+	desiredSGIds := desired.Networking.InstanceSecurityGroups
+
+	for _, dsg := range desiredSGIds {
+		if _, exists := currentMapSGIds[dsg]; !exists {
+			return true
+		}
+	}
+
+	for _, csg := range currentSGIds {
+		if _, exists := desiredMapSGIds[*csg.GroupId]; !exists {
 			return true
 		}
 	}

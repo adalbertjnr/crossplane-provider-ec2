@@ -355,14 +355,32 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 		switch key {
 		case property.AMI:
-			update = cloud.NeedsAMIUpdate(currentConfig, &desiredConfig)
+			update = cloud.NeedsAMIUpdate(
+				currentConfig,
+				&desiredConfig,
+			)
 		case property.VOLUME:
+			update = cloud.NeedsVolumeUpdate(
+				ctx,
+				client,
+				currentConfig,
+				&desiredConfig,
+			)
 		case property.SECURITY_GROUPS:
-			update = cloud.NeedsSecurityGroupsUpdate(currentConfig, &desiredConfig)
+			update = cloud.NeedsSecurityGroupsUpdate(
+				currentConfig,
+				&desiredConfig,
+			)
 		case property.TAGS:
-			update = cloud.NeedsTagsUpdate(currentConfig, &desiredConfig)
+			update = cloud.NeedsTagsUpdate(
+				currentConfig,
+				&desiredConfig,
+			)
 		case property.INSTANCE_TYPE:
-			update = cloud.NeedsInstanceTypeUpdate(currentConfig, &desiredConfig)
+			update = cloud.NeedsInstanceTypeUpdate(
+				currentConfig,
+				&desiredConfig,
+			)
 		}
 
 		if update {
