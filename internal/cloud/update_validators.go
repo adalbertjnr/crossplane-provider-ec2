@@ -1,6 +1,10 @@
 package cloud
 
 import (
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
@@ -61,18 +65,35 @@ func NeedsSecurityGroupsUpdate(current *types.Instance, desired *v1alpha1.Instan
 	return false
 }
 
-func ResourceUpToDate(l logging.Logger, current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
+func NeedsVolumeUpdate(ctx context.Context, c *EC2Client, current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
+	output, err := c.Client.DescribeVolumes(ctx, &ec2.DescribeVolumesInput{
+		Filters: []types.Filter{
+			{Name: aws.String("attachment.instance-id"), Values: []string{*current.InstanceId}},
+		},
+	})
+
+	if err != nil {
+		return false
+	}
+
+	commands := VolumeValidator(output, current, desired)
+	return len(commands) > 0
+}
+
+func ResourceUpToDate(ctx context.Context, c *EC2Client, l logging.Logger, current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
 	amiExp := NeedsAMIUpdate(current, desired)
 	typExp := NeedsInstanceTypeUpdate(current, desired)
 	tagExp := NeedsTagsUpdate(current, desired)
 	secExp := NeedsSecurityGroupsUpdate(current, desired)
+	volExp := NeedsVolumeUpdate(ctx, c, current, desired)
 
 	l.Info("observe check",
 		"needs ami update", amiExp,
 		"needs type update", typExp,
 		"needs tag update", tagExp,
 		"needs security groups update", secExp,
+		"needs volume update", volExp,
 	)
 
-	return !amiExp && !typExp && !tagExp && !secExp
+	return !amiExp && !typExp && !tagExp && !secExp && !volExp
 }

@@ -204,7 +204,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
-	if !cloud.ResourceUpToDate(c.logger, currentResource, &resourceConfig) {
+	if !cloud.ResourceUpToDate(ctx, client, c.logger, currentResource, &resourceConfig) {
 		c.logger.Info("observe check",
 			"message", "resource is outdated, an update is required",
 			"currentResource", currentResource,

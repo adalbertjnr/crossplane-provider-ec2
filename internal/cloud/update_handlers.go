@@ -16,6 +16,7 @@ const errSubnetNotFound = "error subnet not found"
 
 type VolumeCommand interface {
 	Run(ctx context.Context, c *EC2Client) error
+	Validate() bool
 }
 
 type cvCommand struct {
@@ -24,6 +25,10 @@ type cvCommand struct {
 	volumeType string
 	diskSize   int32
 	subnetId   string
+}
+
+func (c *cvCommand) Validate() bool {
+	return false
 }
 
 func (c *cvCommand) Run(ctx context.Context, e *EC2Client) error {
@@ -40,6 +45,10 @@ type rvCommand struct {
 	diskSize int32
 }
 
+func (c *rvCommand) Validate() bool {
+	return false
+}
+
 func (c *rvCommand) Run(ctx context.Context, e *EC2Client) error {
 	return e.updateVolumeSize(ctx, c.volumeId, c.diskSize)
 }
@@ -47,6 +56,10 @@ func (c *rvCommand) Run(ctx context.Context, e *EC2Client) error {
 type cvtCommand struct {
 	volumeId   string
 	volumeType string
+}
+
+func (c *cvtCommand) Validate() bool {
+	return false
 }
 
 func (c *cvtCommand) Run(ctx context.Context, e *EC2Client) error {
@@ -57,6 +70,10 @@ type dtvCommand struct {
 	volumeId   string
 	deviceName string
 	instanceId string
+}
+
+func (c *dtvCommand) Validate() bool {
+	return false
 }
 
 func (c *dtvCommand) Run(ctx context.Context, e *EC2Client) error {
@@ -196,62 +213,7 @@ func (e *EC2Client) HandleVolume(ctx context.Context, current *types.Instance, d
 		return err
 	}
 
-	volumeDataMap := make(map[string]volumeInformation)
-
-	for _, volume := range output.Volumes {
-		if volume.Attachments != nil {
-
-			volumeID := *volume.VolumeId
-			volumeDeviceName := *volume.Attachments[0].Device
-			volumeSize := *volume.Size
-			volumeType := string(volume.VolumeType)
-
-			volumeDataMap[volumeDeviceName] = volumeInformation{
-				volumeID:   volumeID,
-				volumeType: volumeType,
-				volumeSize: volumeSize,
-			}
-		}
-	}
-
-	var commands []VolumeCommand
-
-	for _, dv := range desired.Storage {
-		volume, volumeExists := volumeDataMap[dv.DeviceName]
-
-		switch {
-		case !volumeExists:
-			commands = append(commands, &cvCommand{
-				instanceId: *current.InstanceId,
-				deviceName: dv.DeviceName,
-				volumeType: dv.InstanceDisk,
-				diskSize:   dv.DiskSize,
-			})
-			continue
-
-		case dv.DiskSize > volume.volumeSize:
-			commands = append(commands, &rvCommand{
-				volumeId: volume.volumeID,
-				diskSize: volume.volumeSize,
-			})
-
-		case dv.InstanceDisk != volume.volumeType:
-			commands = append(commands, &cvtCommand{
-				volumeId:   volume.volumeID,
-				volumeType: volume.volumeType,
-			})
-		}
-	}
-
-	for _, cvolume := range output.Volumes {
-		if _, exists := volumeDataMap[*cvolume.Attachments[0].Device]; exists {
-			commands = append(commands, &dtvCommand{
-				volumeId:   *cvolume.VolumeId,
-				deviceName: *cvolume.Attachments[0].Device,
-				instanceId: *current.InstanceId,
-			})
-		}
-	}
+	commands := VolumeValidator(output, current, desired)
 
 	if len(commands) > 0 {
 		turnOffChannel := make(chan struct{})
