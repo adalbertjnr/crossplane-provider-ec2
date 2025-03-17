@@ -16,7 +16,6 @@ const errSubnetNotFound = "error subnet not found"
 
 type VolumeCommand interface {
 	Run(ctx context.Context, c *EC2Client) error
-	Validate() bool
 }
 
 type cvCommand struct {
@@ -25,10 +24,6 @@ type cvCommand struct {
 	volumeType string
 	diskSize   int32
 	subnetId   string
-}
-
-func (c *cvCommand) Validate() bool {
-	return false
 }
 
 func (c *cvCommand) Run(ctx context.Context, e *EC2Client) error {
@@ -45,10 +40,6 @@ type rvCommand struct {
 	diskSize int32
 }
 
-func (c *rvCommand) Validate() bool {
-	return false
-}
-
 func (c *rvCommand) Run(ctx context.Context, e *EC2Client) error {
 	return e.updateVolumeSize(ctx, c.volumeId, c.diskSize)
 }
@@ -56,10 +47,6 @@ func (c *rvCommand) Run(ctx context.Context, e *EC2Client) error {
 type cvtCommand struct {
 	volumeId   string
 	volumeType string
-}
-
-func (c *cvtCommand) Validate() bool {
-	return false
 }
 
 func (c *cvtCommand) Run(ctx context.Context, e *EC2Client) error {
@@ -70,10 +57,6 @@ type dtvCommand struct {
 	volumeId   string
 	deviceName string
 	instanceId string
-}
-
-func (c *dtvCommand) Validate() bool {
-	return false
 }
 
 func (c *dtvCommand) Run(ctx context.Context, e *EC2Client) error {
