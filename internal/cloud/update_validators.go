@@ -19,6 +19,18 @@ func NeedsInstanceTypeUpdate(current *types.Instance, desired *v1alpha1.Instance
 	return current.InstanceType != types.InstanceType(desired.InstanceType)
 }
 
+func NeedsInstanceNameUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
+	currentInstanceTags := generic.FromSliceToMapWithValues(current.Tags,
+		func(tag types.Tag) (string, string) { return *tag.Key, *tag.Value },
+	)
+
+	if currentName, found := currentInstanceTags[INSTANCE_TAG_KEY_NAME]; found {
+		return desired.InstanceName != currentName
+	}
+
+	return false
+}
+
 func NeedsTagsUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
 	currentTags := generic.FromSliceToMapWithValues(current.Tags,
 		func(tag types.Tag) (string, string) {
@@ -99,8 +111,10 @@ func ResourceUpToDate(ctx context.Context, c *EC2Client, l logging.Logger, curre
 	tagExp := NeedsTagsUpdate(current, desired)
 	secExp := NeedsSecurityGroupsUpdate(current, desired)
 	volExp := NeedsVolumeUpdate(ctx, c, current, desired)
+	namExp := NeedsInstanceNameUpdate(current, desired)
 
 	l.Info("observe check",
+		"needs name update", namExp,
 		"needs ami update", amiExp,
 		"needs type update", typExp,
 		"needs tag update", tagExp,
@@ -108,5 +122,5 @@ func ResourceUpToDate(ctx context.Context, c *EC2Client, l logging.Logger, curre
 		"needs volume update", volExp,
 	)
 
-	return !amiExp && !typExp && !tagExp && !secExp && !volExp
+	return !amiExp && !typExp && !tagExp && !secExp && !volExp && !namExp
 }

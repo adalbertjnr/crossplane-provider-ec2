@@ -3,6 +3,7 @@ package types
 type Property string
 
 const (
+	NAME            Property = "Name"
 	SECURITY_GROUPS Property = "SecurityGroups"
 	TAGS            Property = "Tags"
 	INSTANCE_TYPE   Property = "InstanceType"

@@ -261,6 +261,17 @@ func (c *EC2Client) turnOn(ctx context.Context, instanceId string) error {
 	return err
 }
 
+func (e *EC2Client) HandleName(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+	patchName := types.Tag{Key: &INSTANCE_TAG_KEY_NAME, Value: &desired.InstanceName}
+
+	_, err := e.Client.CreateTags(ctx, &ec2.CreateTagsInput{
+		Resources: []string{*current.InstanceId},
+		Tags:      []types.Tag{patchName},
+	})
+
+	return err
+}
+
 func (e *EC2Client) HandleTags(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
 	tm := make(map[string]string)
 

@@ -42,6 +42,7 @@ import (
 	"github.com/crossplane/provider-customcomputeprovider/internal/cloud"
 	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 	"github.com/crossplane/provider-customcomputeprovider/internal/features"
+	"github.com/crossplane/provider-customcomputeprovider/internal/generic"
 )
 
 const (
@@ -309,6 +310,19 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	updateFuncs := map[property.Property]func() error{
+		property.NAME: func() error {
+			currentInstanceTags := generic.FromSliceToMapWithValues(currentConfig.Tags,
+				func(tag ec2types.Tag) (string, string) { return *tag.Key, *tag.Value },
+			)
+
+			currentInstanceName := currentInstanceTags[cloud.INSTANCE_TAG_KEY_NAME]
+			c.logger.Info("checking name differences",
+				"current name", currentInstanceName,
+				"desired name", desiredConfig.InstanceName,
+			)
+			return client.HandleName(ctx, currentConfig, &desiredConfig)
+		},
+
 		property.VOLUME: func() error {
 			c.logger.Info("checking volume configuration differences",
 				"current volume", currentConfig.BlockDeviceMappings,
@@ -354,6 +368,11 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 		update := false
 
 		switch key {
+		case property.NAME:
+			update = cloud.NeedsInstanceNameUpdate(
+				currentConfig,
+				&desiredConfig,
+			)
 		case property.AMI:
 			update = cloud.NeedsAMIUpdate(
 				currentConfig,
