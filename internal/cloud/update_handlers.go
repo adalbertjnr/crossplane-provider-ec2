@@ -219,62 +219,7 @@ func (e *EC2Client) HandleVolume(ctx context.Context, current *types.Instance, d
 		return err
 	}
 
-	volumeDataMap := make(map[string]volumeInformation)
-
-	for _, volume := range output.Volumes {
-		if volume.Attachments != nil {
-
-			volumeID := *volume.VolumeId
-			volumeDeviceName := *volume.Attachments[0].Device
-			volumeSize := *volume.Size
-			volumeType := string(volume.VolumeType)
-
-			volumeDataMap[volumeDeviceName] = volumeInformation{
-				volumeID:   volumeID,
-				volumeType: volumeType,
-				volumeSize: volumeSize,
-			}
-		}
-	}
-
-	var commands []VolumeCommand
-
-	for _, dv := range desired.Storage {
-		volume, volumeExists := volumeDataMap[dv.DeviceName]
-
-		switch {
-		case !volumeExists:
-			commands = append(commands, &cvCommand{
-				instanceId: *current.InstanceId,
-				deviceName: dv.DeviceName,
-				volumeType: dv.InstanceDisk,
-				diskSize:   dv.DiskSize,
-			})
-			continue
-
-		case dv.DiskSize > volume.volumeSize:
-			commands = append(commands, &rvCommand{
-				volumeId: volume.volumeID,
-				diskSize: volume.volumeSize,
-			})
-
-		case dv.InstanceDisk != volume.volumeType:
-			commands = append(commands, &cvtCommand{
-				volumeId:   volume.volumeID,
-				volumeType: volume.volumeType,
-			})
-		}
-	}
-
-	for _, cvolume := range output.Volumes {
-		if _, exists := volumeDataMap[*cvolume.Attachments[0].Device]; exists {
-			commands = append(commands, &dtvCommand{
-				volumeId:   *cvolume.VolumeId,
-				deviceName: *cvolume.Attachments[0].Device,
-				instanceId: *current.InstanceId,
-			})
-		}
-	}
+	commands := VolumeValidator(output, current, desired)
 
 	if len(commands) > 0 {
 		turnOffChannel := make(chan struct{})
@@ -334,6 +279,17 @@ func (c *EC2Client) turnOff(ctx context.Context, turnOffChannel chan<- struct{},
 func (c *EC2Client) turnOn(ctx context.Context, instanceId string) error {
 	_, err := c.Client.StartInstances(ctx, &ec2.StartInstancesInput{
 		InstanceIds: []string{instanceId},
+	})
+
+	return err
+}
+
+func (e *EC2Client) HandleName(ctx context.Context, current *types.Instance, desired *v1alpha1.InstanceConfig) error {
+	patchName := types.Tag{Key: &INSTANCE_TAG_KEY_NAME, Value: &desired.InstanceName}
+
+	_, err := e.Client.CreateTags(ctx, &ec2.CreateTagsInput{
+		Resources: []string{*current.InstanceId},
+		Tags:      []types.Tag{patchName},
 	})
 
 	return err
