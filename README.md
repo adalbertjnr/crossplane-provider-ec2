@@ -13,10 +13,31 @@ This project demonstrates how to create a custom provider for Crossplane, focusi
 - Security group configuration
 - Instance tagging
 - Basic AWS networking setup
+- Drift detection - For **name**, **instance type**, **storage**, **security groups** and **tags** (currently change subnets or ami is a todo proccess still)
 
 ## Usage
 
 ### Provider Configuration
+
+This is necessary for autentication outside aws ec2/nodes
+Just provide a secret containing the aws secret and access key with permissions to manage ec2
+
+Secret and providerConfig are not necessary if the provider is installed inside any ec2 or eks node, but they need to have policies attached to an instance profile.
+
+### Secret
+
+```yaml
+apiVersion: v1
+data:
+  credentials: {"access_key_id":"" secret_access_key":""}
+kind: Secret
+metadata:
+  name: compute-secret
+  namespace: crossplane-system
+type: Opaque
+```
+
+### ProviderConfig
 
 ```yaml
 apiVersion: compute.customcomputeprovider.crossplane.io/v1alpha1
@@ -27,7 +48,7 @@ spec:
   credentials:
     source: Secret
     secretRef:
-      name: aws-secret
+      name: compute-secret
       namespace: crossplane-system
       key: credentials
 ```
