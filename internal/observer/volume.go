@@ -4,7 +4,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/crossplane/provider-customcomputeprovider/internal/provider"
+	"github.com/crossplane/provider-customcomputeprovider/internal/shared"
+	o "github.com/crossplane/provider-customcomputeprovider/internal/types"
 )
 
 type VolumeValidator struct{}
@@ -20,10 +21,14 @@ func (v *VolumeValidator) NeedsUpdate(ctx ValidationContext) bool {
 		return false
 	}
 
-	commands := provider.CheckVolume(output, ctx.Current, ctx.Desired)
+	analyzer := shared.NewCommandAnalyzer()
+	state := analyzer.BuildVolumeState(output, ctx.Current)
+	state.Desired = ctx.Desired.Storage
+	commands := analyzer.AnalyzeChanges(state)
+
 	return len(commands) > 0
 }
 
 func (*VolumeValidator) GetValidationType() string {
-	return "Volume"
+	return o.VOLUME.String()
 }

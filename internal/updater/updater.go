@@ -7,6 +7,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	"github.com/crossplane/provider-customcomputeprovider/internal/provider"
+	o "github.com/crossplane/provider-customcomputeprovider/internal/types"
 )
 
 type Updater interface {
@@ -38,11 +39,11 @@ type UpdateOrchestrator struct {
 
 func NewUpdateOrchestrator(logger logging.Logger) *UpdateOrchestrator {
 	ops := make(map[string]Updater)
-	ops["TAG"] = NewTagOperation(logger)
-	ops["NAME"] = NewTagOperation(logger)
-	ops["VOLUME"] = NewVolumeOperation(logger)
-	ops["TYPE"] = NewTypeUpdateOperation(logger)
-	ops["SECURITY_GROUP"] = NewSecurityGroupUpdateOperation(logger)
+	ops[o.NAME.String()] = NewNameOperation(logger)
+	ops[o.SECURITY_GROUPS.String()] = NewSecurityGroupUpdateOperation(logger)
+	ops[o.TAGS.String()] = NewTagOperation(logger)
+	ops[o.INSTANCE_TYPE.String()] = NewTypeUpdateOperation(logger)
+	ops[o.VOLUME.String()] = NewVolumeOperation(logger)
 
 	return &UpdateOrchestrator{
 		operations: ops,

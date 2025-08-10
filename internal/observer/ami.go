@@ -1,5 +1,7 @@
 package validation
 
+import "github.com/crossplane/provider-customcomputeprovider/internal/types"
+
 type AMIValidator struct{}
 
 func (v *AMIValidator) NeedsUpdate(ctx ValidationContext) bool {
@@ -7,5 +9,5 @@ func (v *AMIValidator) NeedsUpdate(ctx ValidationContext) bool {
 }
 
 func (*AMIValidator) GetValidationType() string {
-	return "AMI"
+	return types.AMI.String()
 }

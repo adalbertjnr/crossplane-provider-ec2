@@ -3,7 +3,6 @@ package shared
 import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	"github.com/crossplane/provider-customcomputeprovider/internal/commands/volume"
 )
@@ -22,11 +21,11 @@ type VolumeState struct {
 }
 
 type CommandAnalyzer struct {
-	logger logging.Logger
+	// logger logging.Logger
 }
 
-func NewCommandAnalyzer(logger logging.Logger) *CommandAnalyzer {
-	return &CommandAnalyzer{logger: logger}
+func NewCommandAnalyzer() *CommandAnalyzer {
+	return &CommandAnalyzer{}
 }
 
 func (a *CommandAnalyzer) BuildVolumeState(output *ec2.DescribeVolumesOutput, instance *types.Instance) *VolumeState {

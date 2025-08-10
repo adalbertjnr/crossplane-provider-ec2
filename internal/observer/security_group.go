@@ -2,6 +2,7 @@ package validation
 
 import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	o "github.com/crossplane/provider-customcomputeprovider/internal/types"
 	"github.com/crossplane/provider-customcomputeprovider/pkg/generic"
 )
 
@@ -40,5 +41,5 @@ func (v *SecurityGroupValidator) NeedsUpdate(ctx ValidationContext) bool {
 }
 
 func (*SecurityGroupValidator) GetValidationType() string {
-	return "SecurityGroup"
+	return o.SECURITY_GROUPS.String()
 }

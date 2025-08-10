@@ -33,7 +33,7 @@ func (o *VolumeUpdateOperation) Execute(ctx UpdateContext) error {
 		return err
 	}
 
-	analyzer := shared.NewCommandAnalyzer(o.logger)
+	analyzer := shared.NewCommandAnalyzer()
 	state := analyzer.BuildVolumeState(output, ctx.Current)
 	state.Desired = ctx.Desired.Storage
 	commands := analyzer.AnalyzeChanges(state)
