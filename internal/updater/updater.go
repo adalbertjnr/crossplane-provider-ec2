@@ -7,7 +7,7 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	"github.com/crossplane/provider-customcomputeprovider/internal/provider"
-	o "github.com/crossplane/provider-customcomputeprovider/internal/types"
+	ot "github.com/crossplane/provider-customcomputeprovider/internal/types"
 )
 
 type Updater interface {
@@ -39,11 +39,11 @@ type UpdateOrchestrator struct {
 
 func NewUpdateOrchestrator(logger logging.Logger) *UpdateOrchestrator {
 	ops := make(map[string]Updater)
-	ops[o.NAME.String()] = NewNameOperation(logger)
-	ops[o.SECURITY_GROUPS.String()] = NewSecurityGroupUpdateOperation(logger)
-	ops[o.TAGS.String()] = NewTagOperation(logger)
-	ops[o.INSTANCE_TYPE.String()] = NewTypeUpdateOperation(logger)
-	ops[o.VOLUME.String()] = NewVolumeOperation(logger)
+	ops[ot.NAME.String()] = NewNameOperation(logger)
+	ops[ot.SECURITY_GROUPS.String()] = NewSecurityGroupUpdateOperation(logger)
+	ops[ot.TAGS.String()] = NewTagOperation(logger)
+	ops[ot.INSTANCE_TYPE.String()] = NewTypeUpdateOperation(logger)
+	ops[ot.VOLUME.String()] = NewVolumeOperation(logger)
 
 	return &UpdateOrchestrator{
 		operations: ops,
@@ -52,8 +52,21 @@ func NewUpdateOrchestrator(logger logging.Logger) *UpdateOrchestrator {
 }
 
 func (o *UpdateOrchestrator) ExecuteUpdates(updateContext UpdateContext, updates map[string]bool) error {
-	for opType, needsUpdate := range updates {
-		if !needsUpdate {
+	order := []string{
+		ot.NAME.String(),
+		ot.TAGS.String(),
+		ot.SECURITY_GROUPS.String(),
+		ot.INSTANCE_TYPE.String(),
+		ot.VOLUME.String(),
+	}
+	o.logger.Info("starting updates execution",
+		"updates_needed", updates,
+		"execution_order", order)
+
+	for _, opType := range order {
+		needsUpdate, exists := updates[opType]
+		if !exists || !needsUpdate {
+			o.logger.Info("skipping operation", "type", opType)
 			continue
 		}
 
@@ -63,12 +76,36 @@ func (o *UpdateOrchestrator) ExecuteUpdates(updateContext UpdateContext, updates
 			continue
 		}
 
-		o.logger.Info("executing update operation", "type", opType)
+		o.logger.Info("executing update operation",
+			"type", opType,
+			"current_state", map[string]interface{}{
+				"instance_id": *updateContext.Current.InstanceId,
+				"state":       updateContext.Current.State.Name,
+			})
+
 		if err := op.Execute(updateContext); err != nil {
+			o.logger.Info("failed to execute operation",
+				"type", opType,
+				"error", err)
 			return err
 		}
 
-		o.logger.Info("successfully completed update operation", "type", opType)
+		if err := o.refreshInstanceState(&updateContext); err != nil {
+			return err
+		}
+
+		o.logger.Info("successfully completed update operation",
+			"type", opType,
+			"new_state", updateContext.Current.State.Name)
 	}
+	return nil
+}
+
+func (o *UpdateOrchestrator) refreshInstanceState(ctx *UpdateContext) error {
+	instance, err := ctx.Client.GetInstanceByID(ctx.Context, *ctx.Current.InstanceId)
+	if err != nil {
+		return err
+	}
+	ctx.Current = instance
 	return nil
 }

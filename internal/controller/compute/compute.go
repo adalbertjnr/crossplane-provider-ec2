@@ -148,7 +148,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 
 	pc := &apisv1alpha1.ProviderConfig{}
 	if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
-		return &external{}, nil
+		return &external{}, errors.Wrap(err, errGetCreds)
 	}
 
 	cd := pc.Spec.Credentials
@@ -189,13 +189,13 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
-		log.Debug("failed to get EC2 client", "error", err)
+		log.Info("failed to get EC2 client", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 
 	resourceConfig := cr.Spec.ForProvider.InstanceConfig
 	if cr.Status.AtProvider.InstanceID == "" {
-		log.Debug("instance ID not found, resource does not exist")
+		log.Info("instance ID not found, resource does not exist")
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
@@ -203,7 +203,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	resourceFound, currentResource, err := client.Observe(ctx, cr, resourceConfig.InstanceName)
 	if err != nil {
-		log.Debug("failed to observe resource", "error", err)
+		log.Info("failed to observe resource", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 

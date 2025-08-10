@@ -72,6 +72,7 @@ func (o *VolumeUpdateOperation) turnOff(ctx context.Context, c *provider.EC2Clie
 	})
 
 	if err != nil {
+		o.logger.Info("failed to stop instance", "instance", instanceID, "error", err)
 		return err
 	}
 
@@ -81,14 +82,17 @@ func (o *VolumeUpdateOperation) turnOff(ctx context.Context, c *provider.EC2Clie
 		<-ticker.C
 
 		output, err := c.Client.DescribeInstanceStatus(ctx, &ec2.DescribeInstanceStatusInput{
-			InstanceIds: []string{instanceID},
+			InstanceIds:         []string{instanceID},
+			IncludeAllInstances: aws.Bool(true),
 		})
 
 		if err != nil {
+			o.logger.Debug("failed to get instance status", "error", err)
 			return err
 		}
 
 		instanceState := output.InstanceStatuses[0].InstanceState.Name
+		o.logger.Info("instance state", "state", instanceState)
 
 		if instanceState != types.InstanceStateNameStopped {
 			continue
@@ -97,5 +101,6 @@ func (o *VolumeUpdateOperation) turnOff(ctx context.Context, c *provider.EC2Clie
 		break
 	}
 
+	o.logger.Info("instance stopped successfully")
 	return nil
 }

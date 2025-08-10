@@ -25,6 +25,7 @@ func NewCompositeValidator(logger logging.Logger, client *provider.EC2Client) *C
 		client: client,
 		logger: logger,
 		validators: []UpdateValidator{
+			&NameValidator{},
 			&AMIValidator{},
 			&InstanceTypeValidator{},
 			&TagValidator{},
