@@ -1,4 +1,4 @@
-package cloud
+package provider
 
 import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -9,7 +9,7 @@ import (
 
 var INSTANCE_TAG_KEY_NAME string = "Name"
 
-func VolumeValidator(output *ec2.DescribeVolumesOutput, current *types.Instance, desired *v1alpha1.InstanceConfig) []VolumeCommand {
+func CheckVolume(output *ec2.DescribeVolumesOutput, current *types.Instance, desired *v1alpha1.InstanceConfig) []VolumeCommand {
 	volumeDataMap := make(map[string]volumeInformation)
 
 	for _, volume := range output.Volumes {

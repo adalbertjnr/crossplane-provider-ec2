@@ -1,4 +1,4 @@
-package cloud
+package provider
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
-	"github.com/crossplane/provider-customcomputeprovider/internal/generic"
+	"github.com/crossplane/provider-customcomputeprovider/pkg/generic"
 )
 
 func NeedsAMIUpdate(current *types.Instance, desired *v1alpha1.InstanceConfig) bool {
@@ -101,7 +101,7 @@ func NeedsVolumeUpdate(ctx context.Context, c *EC2Client, current *types.Instanc
 		return false
 	}
 
-	commands := VolumeValidator(output, current, desired)
+	commands := CheckVolume(output, current, desired)
 	return len(commands) > 0
 }
 

@@ -19,6 +19,7 @@ package compute
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pkg/errors"
@@ -39,10 +40,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/crossplane/provider-customcomputeprovider/apis/compute/v1alpha1"
 	apisv1alpha1 "github.com/crossplane/provider-customcomputeprovider/apis/v1alpha1"
-	"github.com/crossplane/provider-customcomputeprovider/internal/cloud"
-	property "github.com/crossplane/provider-customcomputeprovider/internal/controller/types"
 	"github.com/crossplane/provider-customcomputeprovider/internal/features"
-	"github.com/crossplane/provider-customcomputeprovider/internal/generic"
+	validation "github.com/crossplane/provider-customcomputeprovider/internal/observer"
+	"github.com/crossplane/provider-customcomputeprovider/internal/provider"
+	"github.com/crossplane/provider-customcomputeprovider/internal/updater"
 )
 
 const (
@@ -141,7 +142,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		}
 
 		client := ec2.NewFromConfig(cfg)
-		return &cloud.EC2Client{Client: client}, nil
+		return &provider.EC2Client{Client: client}, nil
 
 	}
 
@@ -180,49 +181,82 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.New(errNotCompute)
 	}
 
+	log := c.logger.WithValues(
+		"action", "observe",
+		"resource", cr.Name,
+		"instanceName", cr.Spec.ForProvider.InstanceConfig.InstanceName,
+	)
+
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
+		log.Debug("failed to get EC2 client", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 
 	resourceConfig := cr.Spec.ForProvider.InstanceConfig
-
 	if cr.Status.AtProvider.InstanceID == "" {
+		log.Debug("instance ID not found, resource does not exist")
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
+	log = log.WithValues("instanceID", cr.Status.AtProvider.InstanceID)
+
 	resourceFound, currentResource, err := client.Observe(ctx, cr, resourceConfig.InstanceName)
 	if err != nil {
+		log.Debug("failed to observe resource", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 
 	if !resourceFound {
-		c.logger.Info("observe check",
-			"message", "resource not found, will initiate creation",
-			"instanceName", resourceConfig.InstanceName,
-			"desiredInstanceConfig", resourceConfig,
+		log.Info("resource not found", "the program will initialize the creation",
+			"region", cr.Spec.ForProvider.AWSConfig.Region,
+			"config", resourceConfig,
 		)
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
-	if !cloud.ResourceUpToDate(ctx, client, c.logger, currentResource, &resourceConfig) {
-		c.logger.Info("observe check",
-			"message", "resource is outdated, an update is required",
-			"currentResource", currentResource,
-			"desiredResource", resourceConfig,
-		)
+	log = log.WithValues(
+		"state", currentResource.State.Name,
+		"type", currentResource.InstanceType,
+		"launchTime", currentResource.LaunchTime,
+	)
 
+	validators := validation.NewCompositeValidator(c.logger, client)
+	validationResults := validators.ValidateAll(ctx, currentResource, &resourceConfig)
+
+	if validationResults.HasUpdates {
+		log.Info("resource needs update",
+			"updates", validationResults.UpdatesRequired,
+			"current", map[string]interface{}{
+				"type":           currentResource.InstanceType,
+				"ami":            *currentResource.ImageId,
+				"state":          currentResource.State.Name,
+				"securityGroups": currentResource.SecurityGroups,
+				"tags":           processTags(currentResource.Tags),
+			},
+			"desired", map[string]interface{}{
+				"type":           resourceConfig.InstanceType,
+				"ami":            resourceConfig.InstanceAMI,
+				"securityGroups": resourceConfig.Networking.InstanceSecurityGroups,
+				"tags":           resourceConfig.InstanceTags,
+			},
+		)
 		return managed.ExternalObservation{
 			ResourceExists:   true,
 			ResourceUpToDate: false,
 		}, nil
 	}
 
-	c.logger.Info("observe check",
-		"message", "resource is up to date",
-		"currentResource", currentResource,
-		"desiredResource", resourceConfig,
+	log.Info("resource is up to date",
+		"currentState", map[string]interface{}{
+			"type":           currentResource.InstanceType,
+			"ami":            *currentResource.ImageId,
+			"state":          currentResource.State.Name,
+			"securityGroups": currentResource.SecurityGroups,
+			"tags":           processTags(currentResource.Tags),
+		},
 	)
+
 	return managed.ExternalObservation{
 		// Return false when the external resource does not exist. This lets
 		// the managed resource reconciler know that it needs to call Create to
@@ -246,15 +280,38 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.New(errNotCompute)
 	}
 
+	log := c.logger.WithValues(
+		"action", "create",
+		"resource", cr.Name,
+		"region", cr.Spec.ForProvider.AWSConfig.Region,
+	)
+
 	cc, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
+		log.Debug("failed to get ec2 client", "error", err, "region", cr.Spec.ForProvider.AWSConfig.Region)
 		return managed.ExternalCreation{}, err
 	}
 
 	resourceConfig := cr.Spec.ForProvider.InstanceConfig
 
+	log.Info("initiating instance creation",
+		"config", map[string]interface{}{
+			"name":           resourceConfig.InstanceName,
+			"type":           resourceConfig.InstanceType,
+			"ami":            resourceConfig.InstanceAMI,
+			"subnet":         resourceConfig.Networking.SubnetID,
+			"securityGroups": resourceConfig.Networking.InstanceSecurityGroups,
+			"storage":        len(resourceConfig.Storage),
+			"tags":           resourceConfig.InstanceTags,
+		},
+	)
+
 	runOutput, err := cc.CreateInstance(ctx, resourceConfig)
 	if err != nil {
+		log.Debug("failed to create instance",
+			"error", err,
+			"config", resourceConfig,
+		)
 		return managed.ExternalCreation{}, err
 	}
 
@@ -273,13 +330,22 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.Wrap(err, "failed to update compute status after resource creation")
 	}
 
-	c.logger.Info("create",
-		"action", "resource creation initiated",
-		"status", "resource successfully created",
-		"resourceID", cr.Status.AtProvider.InstanceID,
-		"region", cr.Spec.ForProvider.AWSConfig.Region,
-		"resourceConfig", resourceConfig,
-		"reason", "new resource provisioning",
+	log.Info("instance created successfully",
+		"details", map[string]interface{}{
+			"instanceID": instanceID,
+			"status":     instanceStatus,
+			"timestamp":  time.Now().UTC(),
+			"name":       resourceConfig.InstanceName,
+			"type":       resourceConfig.InstanceType,
+			"networking": map[string]interface{}{
+				"subnet":         resourceConfig.Networking.SubnetID,
+				"securityGroups": resourceConfig.Networking.InstanceSecurityGroups,
+			},
+			"storage": map[string]interface{}{
+				"volumes": len(resourceConfig.Storage),
+				"config":  resourceConfig.Storage,
+			},
+		},
 	)
 
 	return managed.ExternalCreation{
@@ -297,118 +363,31 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	desiredConfig := cr.Spec.ForProvider.InstanceConfig
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
-
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
 
-	instanceId := cr.Status.AtProvider.InstanceID
+	instanceID := cr.Status.AtProvider.InstanceID
 
-	currentConfig, err := client.GetInstanceByID(ctx, instanceId)
+	currentConfig, err := client.GetInstanceByID(ctx, instanceID)
 	if err != nil {
 		return managed.ExternalUpdate{}, err
 	}
 
-	updateFuncs := map[property.Property]func() error{
-		property.NAME: func() error {
-			currentInstanceTags := generic.FromSliceToMapWithValues(currentConfig.Tags,
-				func(tag ec2types.Tag) (string, string) { return *tag.Key, *tag.Value },
-			)
+	validator := validation.NewCompositeValidator(c.logger, client)
+	validationResult := validator.ValidateAll(ctx, currentConfig, &desiredConfig)
 
-			currentInstanceName := currentInstanceTags[cloud.INSTANCE_TAG_KEY_NAME]
-			c.logger.Info("checking name differences",
-				"current name", currentInstanceName,
-				"desired name", desiredConfig.InstanceName,
-			)
-			return client.HandleName(ctx, currentConfig, &desiredConfig)
-		},
-
-		property.VOLUME: func() error {
-			c.logger.Info("checking volume configuration differences",
-				"current volume", currentConfig.BlockDeviceMappings,
-				"desired volume", desiredConfig.Storage,
-			)
-			return client.HandleVolume(ctx, currentConfig, &desiredConfig)
-		},
-
-		property.AMI: func() error {
-			c.logger.Info("checking AMI configuration differences",
-				"current AMI", *currentConfig.ImageId,
-				"desired AMI", desiredConfig.InstanceAMI,
-			)
-			return client.HandleAMI(ctx, currentConfig, &desiredConfig)
-		},
-
-		property.INSTANCE_TYPE: func() error {
-			c.logger.Info("checking instance type configuration differences",
-				"current type", currentConfig.InstanceType,
-				"desired type", desiredConfig.InstanceType,
-			)
-			return client.HandleType(ctx, currentConfig, &desiredConfig)
-		},
-
-		property.TAGS: func() error {
-			c.logger.Info("checking tag configuration differences",
-				"current tags", processTags(currentConfig.Tags),
-				"desired tags", desiredConfig.InstanceTags,
-			)
-			return client.HandleTags(ctx, currentConfig, &desiredConfig)
-		},
-
-		property.SECURITY_GROUPS: func() error {
-			c.logger.Info("checking security groups configuration differences",
-				"current security groups", currentConfig.SecurityGroups,
-				"desired security groups", desiredConfig.Networking.InstanceSecurityGroups,
-			)
-			return client.HandleSecurityGroups(ctx, currentConfig, &desiredConfig)
-		},
+	updateCtx := updater.UpdateContext{
+		Context: ctx,
+		Current: currentConfig,
+		Desired: &desiredConfig,
+		Client:  client,
+		Logger:  c.logger,
 	}
 
-	for key, updateFunc := range updateFuncs {
-		update := false
-
-		switch key {
-		case property.NAME:
-			update = cloud.NeedsInstanceNameUpdate(
-				currentConfig,
-				&desiredConfig,
-			)
-		case property.AMI:
-			update = cloud.NeedsAMIUpdate(
-				currentConfig,
-				&desiredConfig,
-			)
-		case property.VOLUME:
-			update = cloud.NeedsVolumeUpdate(
-				ctx,
-				client,
-				currentConfig,
-				&desiredConfig,
-			)
-		case property.SECURITY_GROUPS:
-			update = cloud.NeedsSecurityGroupsUpdate(
-				currentConfig,
-				&desiredConfig,
-			)
-		case property.TAGS:
-			update = cloud.NeedsTagsUpdate(
-				currentConfig,
-				&desiredConfig,
-			)
-		case property.INSTANCE_TYPE:
-			update = cloud.NeedsInstanceTypeUpdate(
-				currentConfig,
-				&desiredConfig,
-			)
-		}
-
-		if update {
-			c.logger.Info("updating resource", "property", key.String())
-			if err := updateFunc(); err != nil {
-				return managed.ExternalUpdate{}, err
-			}
-			c.logger.Info("successfully updated resource", "property", key.String())
-		}
+	orchestrator := updater.NewUpdateOrchestrator(c.logger)
+	if err := orchestrator.ExecuteUpdates(updateCtx, validationResult.UpdatesRequired); err != nil {
+		return managed.ExternalUpdate{}, err
 	}
 
 	return managed.ExternalUpdate{
@@ -424,24 +403,33 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 		return errors.New(errNotCompute)
 	}
 
+	log := c.logger.WithValues(
+		"action", "delete",
+		"resource", cr.Name,
+		"instanceID", cr.Status.AtProvider.InstanceID,
+		"instanceName", cr.Spec.ForProvider.InstanceConfig.InstanceName,
+		"region", cr.Spec.ForProvider.AWSConfig.Region,
+	)
+
 	resourceConfig := cr.Spec.ForProvider.InstanceConfig
 	client, err := clientSelector(ctx, c, cr.Spec.ForProvider.AWSConfig.Region)
 	if err != nil {
 		return err
 	}
 
-	instanceId := cr.Status.AtProvider.InstanceID
+	instanceID := cr.Status.AtProvider.InstanceID
 
-	c.logger.Info("delete",
-		"action", "resource deletion initiated",
-		"status", "resource is being deleted",
-		"resourceID", cr.Status.AtProvider.InstanceID,
-		"region", cr.Spec.ForProvider.AWSConfig.Region,
-		"resourceConfig", resourceConfig,
-		"reason", "cleanup process",
+	log.Info("successfully initiated instance deletion",
+		"details", map[string]interface{}{
+			"timestamp": time.Now().UTC(),
+			"config": map[string]interface{}{
+				"subnet":         resourceConfig.Networking.SubnetID,
+				"securityGroups": resourceConfig.Networking.InstanceSecurityGroups,
+			},
+		},
 	)
 
-	return client.DeleteInstanceById(ctx, instanceId)
+	return client.DeleteInstanceByID(ctx, instanceID)
 }
 
 func processTags(tags []ec2types.Tag) map[string]string {
@@ -456,18 +444,18 @@ func processTags(tags []ec2types.Tag) map[string]string {
 	return m
 }
 
-func clientSelector(ctx context.Context, c *external, region string) (*cloud.EC2Client, error) {
-	var client *cloud.EC2Client
+func clientSelector(ctx context.Context, c *external, region string) (*provider.EC2Client, error) {
+	var client *provider.EC2Client
 
-	cc, ok := c.service.(*cloud.EC2Client)
+	cc, ok := c.service.(*provider.EC2Client)
 	if ok {
 		client = cc
 	} else {
-		cfg, err := cloud.AWSClientConnector(ctx)(region)
+		cfg, err := provider.AWSClientConnector(ctx)(region)
 		if err != nil {
 			return nil, errors.New(errAwsClient)
 		}
-		cc := cloud.NewEC2Client(cfg)
+		cc := provider.NewEC2Client(cfg)
 		client = cc
 	}
 

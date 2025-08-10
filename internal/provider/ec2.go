@@ -1,4 +1,4 @@
-package cloud
+package provider
 
 import (
 	"context"
@@ -15,13 +15,13 @@ import (
 
 var errInstanceNotFound = errors.New("error instance not found")
 
-func (e *EC2Client) GetInstanceByID(ctx context.Context, instanceId string) (*types.Instance, error) {
+func (e *EC2Client) GetInstanceByID(ctx context.Context, instanceID string) (*types.Instance, error) {
 	instance, err := e.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: []string{instanceId},
+		InstanceIds: []string{instanceID},
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to describe ec2 instance %s: %w", instanceId, err)
+		return nil, fmt.Errorf("failed to describe ec2 instance %s: %w", instanceID, err)
 	}
 
 	if len(instance.Reservations) == 0 {
@@ -34,9 +34,9 @@ func (e *EC2Client) GetInstanceByID(ctx context.Context, instanceId string) (*ty
 func (e *EC2Client) Observe(ctx context.Context, cr *v1alpha1.Compute, resourceName string) (bool, *types.Instance, error) {
 	exists := true
 
-	instanceId := cr.Status.AtProvider.InstanceID
+	instanceID := cr.Status.AtProvider.InstanceID
 
-	instance, err := e.GetInstanceByID(ctx, instanceId)
+	instance, err := e.GetInstanceByID(ctx, instanceID)
 	if err != nil {
 		if errors.Is(err, errInstanceNotFound) {
 			return !exists, nil, nil
@@ -48,9 +48,9 @@ func (e *EC2Client) Observe(ctx context.Context, cr *v1alpha1.Compute, resourceN
 	return exists, instance, nil
 }
 
-func (e *EC2Client) DeleteInstanceById(ctx context.Context, instanceId string) error {
+func (e *EC2Client) DeleteInstanceByID(ctx context.Context, instanceID string) error {
 	output, err := e.Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		InstanceIds: []string{instanceId},
+		InstanceIds: []string{instanceID},
 	})
 
 	if err != nil {

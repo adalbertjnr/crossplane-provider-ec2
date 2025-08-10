@@ -1,4 +1,4 @@
-package cloud
+package provider
 
 import (
 	"context"
@@ -219,7 +219,7 @@ func (e *EC2Client) HandleVolume(ctx context.Context, current *types.Instance, d
 		return err
 	}
 
-	commands := VolumeValidator(output, current, desired)
+	commands := CheckVolume(output, current, desired)
 
 	if len(commands) > 0 {
 		turnOffChannel := make(chan struct{})
