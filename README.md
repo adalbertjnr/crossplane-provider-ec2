@@ -15,7 +15,20 @@ This project demonstrates how to create a custom provider for Crossplane, focusi
 - Basic AWS networking setup
 - Drift detection - For **name**, **instance type**, **storage**, **security groups** and **tags** (currently change subnets or ami is a todo proccess still)
 
+## Prerequisites
+
+- Kubernetes cluster
+- Crossplane installed
+- AWS credentials
+- Basic understanding of Kubernetes and AWS
+
 ## Usage
+
+### CRDs
+
+The CRDs under package/crds must be installed first
+
+> kubectl apply -f package/crds
 
 ### Provider Configuration
 
@@ -88,13 +101,6 @@ spec:
   providerConfigRef:
     name: compute-provider
 ```
-
-## Prerequisites
-
-- Kubernetes cluster
-- Crossplane installed
-- AWS credentials
-- Basic understanding of Kubernetes and AWS
 
 ## Project Structure
 
