@@ -52,7 +52,7 @@ fallthrough: submodules
 	@make
 
 custom-build: build
-	docker tag build-edbeef3f/provider-customcomputeprovider-amd64 public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.1.0
+	docker tag build-b7a8c92c/provider-customcomputeprovider-amd64 public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.1.0
 	docker push public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.1.0
 	crossplane xpkg build --package-root=./package
 	crane push package/customcomputeprovider-88e5521bf2fb.xpkg public.ecr.aws/v5l8y3e2/upbound/custom-provider-cp:v.0.3.1
